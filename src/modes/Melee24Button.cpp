@@ -1,28 +1,29 @@
-#include "modes/Melee20Button.hpp"
+#include "modes/Melee24Button.hpp"
 
 #define ANALOG_STICK_MIN 48
 #define ANALOG_STICK_NEUTRAL 128
 #define ANALOG_STICK_MAX 208
 
-Melee20Button::Melee20Button(socd::SocdType socd_type, Melee20ButtonOptions options) {
+Melee24Button::Melee24Button(socd::SocdType socd_type, Melee24ButtonOptions options)
+    : ControllerMode(socd_type) {
     _socd_pair_count = 4;
     _socd_pairs = new socd::SocdPair[_socd_pair_count]{
-        socd::SocdPair{&InputState::left,    &InputState::right,   socd_type},
-        socd::SocdPair{ &InputState::down,   &InputState::up,      socd_type},
-        socd::SocdPair{ &InputState::c_left, &InputState::c_right, socd_type},
-        socd::SocdPair{ &InputState::c_down, &InputState::c_up,    socd_type},
+        socd::SocdPair{&InputState::left,    &InputState::right  },
+        socd::SocdPair{ &InputState::down,   &InputState::up     },
+        socd::SocdPair{ &InputState::c_left, &InputState::c_right},
+        socd::SocdPair{ &InputState::c_down, &InputState::c_up   },
     };
 
     _options = options;
     _horizontal_socd = false;
 }
 
-void Melee20Button::HandleSocd(InputState &inputs) {
+void Melee24Button::HandleSocd(InputState &inputs) {
     _horizontal_socd = inputs.left && inputs.right;
     InputMode::HandleSocd(inputs);
 }
 
-void Melee20Button::UpdateDigitalOutputs(InputState &inputs, OutputState &outputs) {
+void Melee24Button::UpdateDigitalOutputs(InputState &inputs, OutputState &outputs) {
     outputs.a = inputs.a;
     outputs.b = inputs.b;
     outputs.x = inputs.x;
@@ -31,26 +32,21 @@ void Melee20Button::UpdateDigitalOutputs(InputState &inputs, OutputState &output
     if (inputs.nunchuk_connected) {
         outputs.triggerLDigital = inputs.nunchuk_z;
     } else {
-        outputs.triggerLDigital = inputs.l;
+        outputs.triggerLDigital = inputs.l || inputs.zr;
     }
-    outputs.triggerRDigital = inputs.r;
+    outputs.triggerRDigital = inputs.r || inputs.zr;
     outputs.start = inputs.start;
 
-    // Activate D-Pad layer by holding Mod X + Mod Y or Nunchuk C button.
-    if ((inputs.mod_x && inputs.mod_y) || inputs.nunchuk_c) {
-        outputs.dpadUp = inputs.c_up;
-        outputs.dpadDown = inputs.c_down;
-        outputs.dpadLeft = inputs.c_left;
-        outputs.dpadRight = inputs.c_right;
+    // If D-Pad mod isn't held, left and down are Mod X and Mod Y
+    if (inputs.dpad_mod) {
+        outputs.dpadUp = inputs.dpad_up;
+        outputs.dpadDown = inputs.mod_y;
+        outputs.dpadLeft = inputs.mod_x;
+        outputs.dpadRight = inputs.dpad_right;
     }
-
-    if (inputs.select)
-        outputs.dpadLeft = true;
-    if (inputs.home)
-        outputs.dpadRight = true;
 }
 
-void Melee20Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs) {
+void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs) {
     // Coordinate calculations to make modifier handling simpler.
     UpdateDirections(
         inputs.left,
@@ -67,7 +63,7 @@ void Melee20Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
         outputs
     );
 
-    bool shield_button_pressed = inputs.l || inputs.r || inputs.lightshield || inputs.midshield;
+    bool shield_button_pressed = inputs.l || inputs.r || inputs.zr || inputs.lightshield || inputs.midshield;
     if (directions.diagonal) {
         // q1/2 = 7000 7000
         outputs.leftStickX = 128 + (directions.x * 56);

@@ -5,7 +5,6 @@
 #define ANALOG_STICK_MAX 208
 
 Melee18Button::Melee18Button(socd::SocdType socd_type, Melee18ButtonOptions options) {
-    socd_type = MELEE_SOCD;
     _socd_pair_count = 4;
     _socd_pairs = new socd::SocdPair[_socd_pair_count]{
         socd::SocdPair{&InputState::left,    &InputState::right,   socd_type},
@@ -29,7 +28,15 @@ void Melee18Button::UpdateDigitalOutputs(InputState &inputs, OutputState &output
     outputs.x = inputs.x;
     outputs.y = inputs.y;
     outputs.buttonR = inputs.z;
-    outputs.triggerLDigital = inputs.l;
+    if (inputs.nunchuk_connected) {
+        // Lightshield with C button.
+        if (inputs.nunchuk_c) {
+            outputs.triggerLAnalog = 49;
+        }
+        outputs.triggerLDigital = inputs.nunchuk_z;
+    } else {
+        outputs.triggerLDigital = inputs.l;
+    }
     outputs.triggerRDigital = inputs.r;
     outputs.start = inputs.start;
 
@@ -72,11 +79,9 @@ void Melee18Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
     }
 
     if (inputs.mod_x) {
-        // MX + Horizontal (even if shield is held) = 6625 = 53
         if (directions.horizontal) {
             outputs.leftStickX = 128 + (directions.x * 53);
         }
-        // MX + Vertical (even if shield is held) = 5375 = 43
         if (directions.vertical) {
             outputs.leftStickY = 128 + (directions.y * 43);
         }
@@ -93,48 +98,25 @@ void Melee18Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
             // 22.9638 - 7375 3125 = 59 25
             outputs.leftStickX = 128 + (directions.x * 59);
             outputs.leftStickY = 128 + (directions.y * 25);
-
             // 27.37104 - 7000 3625 (27.38) = 56 29
-            if (!_options.teleport_coords) {
-                if (inputs.c_down) {
-                    outputs.leftStickX = 128 + (directions.x * 56);
-                    outputs.leftStickY = 128 + (directions.y * 29);
-                }
-                // 31.77828 - 7875 4875 (31.76) = 63 39
-                if (inputs.c_left) {
-                    outputs.leftStickX = 128 + (directions.x * 63);
-                    outputs.leftStickY = 128 + (directions.y * 39);
-                }
-                // 36.18552 - 7000 5125 (36.21) = 56 41
-                if (inputs.c_up) {
-                    outputs.leftStickX = 128 + (directions.x * 56);
-                    outputs.leftStickY = 128 + (directions.y * 41);
-                }
-                // 40.59276 - 6125 5250 (40.6) = 49 42
-                if (inputs.c_right) {
-                    outputs.leftStickX = 128 + (directions.x * 49);
-                    outputs.leftStickY = 128 + (directions.y * 42);
-                }
-            } else {//roughly 0.8 magnitude for uniform shorter teleports
-                if (inputs.c_down) {
-                    outputs.leftStickX = 128 + (directions.x * 57);
-                    outputs.leftStickY = 128 + (directions.y * 30);
-                }
-                // 31.77828 - 7875 4875 (31.76) = 63 39
-                if (inputs.c_left) {
-                    outputs.leftStickX = 128 + (directions.x * 55);
-                    outputs.leftStickY = 128 + (directions.y * 34);
-                }
-                // 36.18552 - 7000 5125 (36.21) = 56 41
-                if (inputs.c_up) {
-                    outputs.leftStickX = 128 + (directions.x * 52);
-                    outputs.leftStickY = 128 + (directions.y * 38);
-                }
-                // 40.59276 - 6125 5250 (40.6) = 49 42
-                if (inputs.c_right) {
-                    outputs.leftStickX = 128 + (directions.x * 49);
-                    outputs.leftStickY = 128 + (directions.y * 42);
-                }
+            if (inputs.c_down) {
+                outputs.leftStickX = 128 + (directions.x * 56);
+                outputs.leftStickY = 128 + (directions.y * 29);
+            }
+            // 31.77828 - 7875 4875 (31.76) = 63 39
+            if (inputs.c_left) {
+                outputs.leftStickX = 128 + (directions.x * 63);
+                outputs.leftStickY = 128 + (directions.y * 39);
+            }
+            // 36.18552 - 7000 5125 (36.21) = 56 41
+            if (inputs.c_up) {
+                outputs.leftStickX = 128 + (directions.x * 56);
+                outputs.leftStickY = 128 + (directions.y * 41);
+            }
+            // 40.59276 - 6125 5250 (40.6) = 49 42
+            if (inputs.c_right) {
+                outputs.leftStickX = 128 + (directions.x * 49);
+                outputs.leftStickY = 128 + (directions.y * 42);
             }
 
             /* Extended Up B Angles */
@@ -174,52 +156,35 @@ void Melee18Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
             outputs.leftStickY = 128 + (directions.y * 59);
         }
 
+        // Turnaround neutral B nerf
+        if (inputs.b) {
+            outputs.leftStickX = 128 + (directions.x * 80);
+        }
+
         /* Up B angles */
         if (directions.diagonal && !shield_button_pressed) {
             // 67.0362 - 3125 7375 = 25 59
             outputs.leftStickX = 128 + (directions.x * 25);
             outputs.leftStickY = 128 + (directions.y * 59);
             // 62.62896 - 3625 7000 (62.62) = 29 56
-            if (!_options.teleport_coords) {
-                if (inputs.c_down) {
-                    outputs.leftStickX = 128 + (directions.x * 29);
-                    outputs.leftStickY = 128 + (directions.y * 56);
-                }
-                // 58.22172 - 4875 7875 (58.24) = 39 63
-                if (inputs.c_left) {
-                    outputs.leftStickX = 128 + (directions.x * 39);
-                    outputs.leftStickY = 128 + (directions.y * 63);
-                }
-                // 53.81448 - 5125 7000 (53.79) = 41 56
-                if (inputs.c_up) {
-                    outputs.leftStickX = 128 + (directions.x * 41);
-                    outputs.leftStickY = 128 + (directions.y * 56);
-                }
-                // 49.40724 - 6375 7625 (50.10) = 51 61
-                if (inputs.c_right) {
-                    outputs.leftStickX = 128 + (directions.x * 51);
-                    outputs.leftStickY = 128 + (directions.y * 61);
-                }
-            } else {//roughly 0.8 magnitude for uniform shorter teleports
-                if (inputs.c_down) {
-                    outputs.leftStickX = 128 + (directions.x * 30);
-                    outputs.leftStickY = 128 + (directions.y * 57);
-                }
-                // 58.22172 - 4875 7875 (58.24) = 39 63
-                if (inputs.c_left) {
-                    outputs.leftStickX = 128 + (directions.x * 35);
-                    outputs.leftStickY = 128 + (directions.y * 57);
-                }
-                // 53.81448 - 5125 7000 (53.79) = 41 56
-                if (inputs.c_up) {
-                    outputs.leftStickX = 128 + (directions.x * 38);
-                    outputs.leftStickY = 128 + (directions.y * 52);
-                }
-                // 49.40724 - 6375 7625 (50.10) = 51 61
-                if (inputs.c_right) {
-                    outputs.leftStickX = 128 + (directions.x * 41);
-                    outputs.leftStickY = 128 + (directions.y * 50);
-                }
+            if (inputs.c_down) {
+                outputs.leftStickX = 128 + (directions.x * 29);
+                outputs.leftStickY = 128 + (directions.y * 56);
+            }
+            // 58.22172 - 4875 7875 (58.24) = 39 63
+            if (inputs.c_left) {
+                outputs.leftStickX = 128 + (directions.x * 39);
+                outputs.leftStickY = 128 + (directions.y * 63);
+            }
+            // 53.81448 - 5125 7000 (53.79) = 41 56
+            if (inputs.c_up) {
+                outputs.leftStickX = 128 + (directions.x * 41);
+                outputs.leftStickY = 128 + (directions.y * 56);
+            }
+            // 49.40724 - 6375 7625 (50.10) = 51 61
+            if (inputs.c_right) {
+                outputs.leftStickX = 128 + (directions.x * 51);
+                outputs.leftStickY = 128 + (directions.y * 61);
             }
 
             /* Extended Up B Angles */
@@ -320,9 +285,21 @@ void Melee18Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
         outputs.rightStickY = 128 + (directions.cy * 68);
     }
 
+    // Horizontal SOCD overrides X-axis modifiers (for ledgedash maximum jump
+    // trajectory).
+    if (!inputs.r && horizontal_socd && !directions.vertical) {
+        outputs.leftStickX = 128 + (directions.x * 80);
+    }
+
     // Shut off C-stick when using D-Pad layer.
     if ((inputs.mod_x && inputs.mod_y) || inputs.nunchuk_c) {
         outputs.rightStickX = 128;
         outputs.rightStickY = 128;
+    }
+
+    // Nunchuk overrides left stick.
+    if (inputs.nunchuk_connected) {
+        outputs.leftStickX = inputs.nunchuk_x;
+        outputs.leftStickY = inputs.nunchuk_y;
     }
 }

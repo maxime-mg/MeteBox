@@ -9,14 +9,13 @@
 
 class XInputBackend : public CommunicationBackend {
   public:
-    XInputBackend(InputSource **input_sources, size_t input_source_count, bool nerfOn);
+    XInputBackend(InputSource **input_sources, size_t input_source_count);
     ~XInputBackend();
     void SendReport();
 
   private:
     Adafruit_USBD_XInput *_xinput;
     xinput_report_t _report = {};
-    bool _nerfOn;
 };
 
 #endif

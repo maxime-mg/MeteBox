@@ -9,11 +9,8 @@
 #include "core/socd.hpp"
 #include "core/state.hpp"
 #include "input/GpioButtonInput.hpp"
-#ifndef MODLS
+#include "input/NunchukInput.hpp"
 #include "modes/Melee20Button.hpp"
-#else
-#include "modes/Melee18Button.hpp"
-#endif
 #include "stdlib.hpp"
 
 CommunicationBackend **backends = nullptr;
@@ -26,8 +23,8 @@ GpioButtonMapping button_mappings[] = {
     { &InputState::down,    16},
     { &InputState::right,   14},
 
-    { &InputState::mod_x,   8 },
-    { &InputState::mod_y,   6 },
+    { &InputState::mod_x,   6 },
+    { &InputState::mod_y,   8 },
 
     { &InputState::start,   12},
 
@@ -56,6 +53,10 @@ Pinout pinout = {
 };
 
 void setup() {
+    // Create Nunchuk input source - must be done before GPIO input source otherwise it would
+    // disable the pullups on the i2c pins.
+    NunchukInput *nunchuk = new NunchukInput();
+
     // Create GPIO input source and use it to read button states for checking button holds.
     GpioButtonInput *gpio_input = new GpioButtonInput(button_mappings, button_count);
 
@@ -63,10 +64,10 @@ void setup() {
     gpio_input->UpdateInputs(button_holds);
 
     // Create array of input sources to be used.
-    static InputSource *input_sources[] = { gpio_input };
+    static InputSource *input_sources[] = { gpio_input, nunchuk };
     size_t input_source_count = sizeof(input_sources) / sizeof(InputSource *);
 
-    CommunicationBackend *primary_backend = new DInputBackend(input_sources, input_source_count, !button_holds.a);
+    CommunicationBackend *primary_backend = new DInputBackend(input_sources, input_source_count);
     delay(500);
     bool usb_connected = UDADDR & _BV(ADDEN);
 
@@ -99,23 +100,9 @@ void setup() {
         backends = new CommunicationBackend *[backend_count] { primary_backend };
     }
 
-    bool use_teleport = false;
-    if (button_holds.b) {
-        use_teleport = true;
-    }
-
-    bool use_crouchwalk = false;
-    if (button_holds.down) {
-        use_crouchwalk = true;
-    }
-
     // Default to Melee mode.
     primary_backend->SetGameMode(
-#ifndef MODLS
-        new Melee20Button(socd::SOCD_2IP_NO_REAC, { .crouch_walk_os = use_crouchwalk, .teleport_coords = use_teleport })
-#else
-        new Melee18Button(socd::SOCD_2IP_NO_REAC, { .crouch_walk_os = use_crouchwalk, .teleport_coords = use_teleport })
-#endif
+        new Melee20Button(socd::SOCD_2IP_NO_REAC, { .crouch_walk_os = false })
     );
 }
 

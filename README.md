@@ -1,85 +1,3 @@
-# HayBox Limited Edition
-
-This is a firmware designed for experimenting with travel time and other subframe nerfs for Melee based on Haystack's HayBox.
-
-We believe that digital controllers, when used for Melee, are a little overtuned relative to GCC.
-
-Our goal is to make it so that box users and GCC users have a level playing field without doing this by buffing custom motherboard GCCs to the level of boxes, so that the barrier to entry for new players isn't a PhobGCC or a rectangle, or by changing the game to be significantly easier than it currently is.
-
-Particular strengths of rectangle controllers we had in mind when designing the initial set of nerfs:
-
-* Dashdancing: GCC players perceive that it's more difficult to hit a dashdancing box player because of their increased ability to react to a threat and dash away.
-* SDI: While GCCs can produce tremendous sustained SDI using the "wank" technique, boxes have much more consistency for short SDI windows and we want to reduce their ability to produce many SDI inputs in a very short time.
-  * Note: it will probably never be possible to make it more difficult to do two consecutive SDI inputs on a box.
-* Pivot tilts: While empty pivoting is somewhat less consistent on rectangles, they are able to pinpoint tilt inputs after an empty pivot much more quickly and consistently than a GCC player can reasonably do without overshooting.
-* Crouch uptilts: Reactionary crouching uptilts and run cancel uptilts, both strong options, are significantly easier on rectangles than on stick because a fast stick motion is likely to overshoot and result in an upsmash or tap jump.
-
-Current nerfs (**SUBJECT TO CHANGE**)
-
-* Neutral SOCD
-  * Neutral SOCD helps mitigate easy three-consecutive-input SDI
-  * Neutral SOCD also helps make long-distance dashdancing a little riskier, because there are two motions required to turn around when you want to change direction. Thus you have an increased risk of getting stuck in a skidding turnaround when you try to turn around right at the end of initial dash. Alternatively, you can release the forward direction early, but that sacrifices distance.
-  * Many consider this to be slightly better than 2ip no-reactivation for controlling aerial drift, because you can never lock yourself out of drift.
-  * It affects away-then-in ledgedashes, making them much harder to be frame-perfect similar to on sticks.
-    * However, it is pointed out that c-stick ledgedrops still exist, just people would need to practice them (and they may be less ergonomic on rectangles with large button spacing).
-    * Some players, depending on the character, want wider ModX wavedash angles to make held-modX down-then-in ledgedashes have the same timing. Is this just Fox?
-  * However, it is generally riskier for vertical recovery mixups like fastfall up-b.
-  * Additionally, if you're not used to lifting fingers up it may take time to get used to.
-  * Will we stick with this? There are potential alternatives that have been suggested, though they are significantly harder to implement:
-    * 2ip no reactivation that has significantly increased travel time when both directions are pressed
-    * 2ip no reactivation vertically, but not horizontally. (possibly with the above); this would need an additional SDI nerf similar to the B0XX ones.
-* Left stick travel time to the center or rim: 6ms (just over 1/3 frame)
-  * Travel time exists to add some reaction time parity between sticks and buttons, and to also make digital inputs subject to at least some of the same polling timing considerations as sticks.
-  * This value is based off measured center-to-rim stick speeds from various players, as well as a little bit of rectangle testing before where a player remarked that even slightly longer travel time felt worse.
-  * Because the travel is linear, this delays inputs by 3 ms on average, but it may be slightly more depending on where the threshold is along the travel distance. For dashdancing turnarounds, this is more like a 5ms delay, but for dashing from standing it's more like 2ms.
-* ~~Left stick movements to rim coordinates delayed by 4ms (1/4 frame).~~
-  * This removes the risk of polling errors for rising edges but slightly slows reaction time.
-* Left stick travel time to ~~non-center~~ non-rim coordinates including the center: 12ms (2/3 frame)
-  * This is longer than the rim travel times because it takes longer, on a stick, to pinpoint a non-rim position.
-  * This used to be 16 ms, a whole frame, but users noted that it made timing button inputs for tilts harder. On a stick, even if it takes longer to get to a tilt location, you get feedback from your senses of when the motion is completed, but that's not true of button presses with simulated travel time.
-  * There's one other issue with this, though, which is that most of the rectangle angles are not rim coordinates even if they're used in a context where a GCC user would have their stick on the rim, so this is a little more impactful than is strictly ideal.
-  * That said, it takes a lot longer than that for the stick to settle when inputting a tilt.
-  * It now also applies to the center, which somewhat restores polling issues if you try to go for frame-perfect full-momentum nairs.
-* 4 frame travel time for cardinal tapping SDI (numpad notation: 5656...) faster than 10 presses/s, but not for taps shorter than half a frame for switch bounce leniency.
-  * This is implemented because with neutral SOCD it's relatively easy to get double-rate mashing. To mash right with one full cycle per press AND per release, press right, press left, release left, release right (and repeat).
-  * By merely increasing the travel time and not locking out, this mitigates SDI without significantly affecting aerial drift control via rapid tapping.
-  * We need to do SDI testing to check whether this is needed at all for short SDI windows (Fox upair 1) and whether it can achieve more distance than wank SDI on long SDI windows (knee).
-* ~~Lockout for diagonal tapping SDI (numpad notation: 636**3**...) faster than 10 presses/s (6f)~~ Currently Disabled
-  * This was implemented for the same reasons as cardinal tap SDI.
-  * However, at the moment it's disabled because it affects shield drop fastfall.
-  * We would like users to test whether abusing diagonal tap SDI is noticeably impactful in game.
-  * In the future this may be re-enabled with a different time window.
-* Lockout for cardinal + diagonal tapping SDI (numpad notation: 56356**3**) faster than 7.5 presses/s (8f)
-  * The last remaining SDI method gets you a cardinal and a diagonal SDI pulse for every press, by plinking two adjacent cardinals.
-  * This is basically repeated quarter-circle SDI in a way that's not really doable on a stick.
-  * It is occasionally impactful in game: one person reported that their ledgedash technique, which involves dropping from ledge with down then in, releasing, and pressing diagonal again to airdodge, was impacted.
-* Moving from a crouching coordinate to an upward tilt in < 3 frames will move the stick to a tap jump coordinate
-  * This prevents users from continuously holding crouch and uptilting on reaction in a single motion.
-  * Additionally, it affects the speed of run cancel uptilt.
-  * Neutral SOCD does not compound with this: time spent in neutral counts towards the two frames you have to wait.
-  * This is a fairly non-controversial new nerf, because it's something that is a strong option in game that is extremely difficult to execute on a stick.
-  * The 3 frame window was initially determined by asking top GCC controller modders what they thought would be a reasonable limit.
-  * In early testing, players have said that it feels reasonable. The limit is easy enough to avoid but at the same time holds back degenerate options.
-  * NOTE: earlier this said 2 frames. I checked the code and it had been 3 frames all along.
-* Tilt stick inputs less than 8.0 frames after an empty pivot will move the stick to a smash coordinate.
-  * This detects an empty pivot that is >50% probability of success: a 0.5 to 1.5 frame tap opposite of the last direction pressed.
-  * In each axis, a tilt that is not in the same direction as the last tap (so you can still mody pivot) gets promoted to a full magnitude in that direction, as long as < 8 frames have elapsed since the empty pivot.
-  * This corresponds with the difficulty of controlling the stick after an empty pivot movement.
-  * For upward directions, Y is maximized to prevent up-angled ftilt. For downward directions, it attempts to preserve the angle so wavedashes are not randomly affected.
-
-In addition to nerfs, it offers several features:
-
-Arduino-based boxes will work at the same latency regardless of polling rate, as long as the poll spacing is constant.
-Users no longer need to hold A on plugin to optimize latency on console, and it'll have slightly less lag on adapters.
-
-Instead, the A press on plugin disables all timing based nerfs.
-
-Additionally, you can hold B on plugin to get the shorter recovery coordinates that all have magnitudes about 0.8, for use with teleport recovery characters, and you can hold Down on plugin to get the crouch-walk option select.
-
-It also currently has built-in support for a handful more boards than mainline Haybox, notably B0XX R4, Htangl, and Rana Digital.
-
-Limitations: Any console polling that does not have uniform space between polls will trip up the connection. Notably, the Homebrew Menu, Nintendont, SmashScope on console, and third-party GCC to USB adapters can work either poorly or not at all.
-
 # HayBox
 
 HayBox is a modular, cross-platform firmware for digital or mixed analog/digital controllers, primarily targeted at [B0XX](https://b0xx.com)-style controllers.
@@ -90,9 +8,9 @@ HayBox is a modular, cross-platform firmware for digital or mixed analog/digital
 ## Table of Contents
 
 * [Features](#features)
-* [Getting Started](#getting-started)
-  * [Requirements](#requirements)
-  * [Installation](#installation)
+* [Installation](#installation)
+  * [Pre-built binaries](#pre-built-binaries)
+  * [Building from source](#building-from-source)
 * [Usage](#usage)
   * [Default button holds](#default-button-holds)
   * [Dolphin setup](#dolphin-setup)
@@ -140,16 +58,34 @@ Features include:
 - Game modes and communication backends are independent entities, meaning you can use any game mode with any supported console without extra work
 - Easily switch between different GameCube/N64 polling rates in order to have optimal latency on console, overclocked adapter, etc. (not necessary for Pico/RP2040)
 
-## Getting Started
+## Installation
 
-### Requirements
+If you want to simply use a pre-built firmware with default pin mappings and configuration, refer to the [pre-built binaries](#pre-built-binaries) section. If you want to make any changes to the code, refer to the [building from source](#building-from-source) section.
 
-- [Git](https://git-scm.com/downloads) - required only if you are using a Pico. May become unnecessary at some point in the future.
+### Pre-built binaries
+
+1. Browse the [existing configs](config/) to determine which config is appropriate for your hardware
+2. Download the corresponding artifact from either the [latest HayBox release](https://github.com/JonnyHaystack/HayBox/releases), or from a [workflow run](https://github.com/JonnyHaystack/HayBox/actions) if you want the latest development version (unstable).
+3. Flash the firmware to your microcontroller in the usual way
+   - If you are using a Pico/RP2040 build (`.uf2` file), simply put it into bootsel mode while plugging it into your PC, and drag and drop the `.uf2` file onto the RPI-RP2 drive that comes up
+   - If you are using Arduino/AVR build (`.hex` file), you can use a program like [QMK Toolbox](https://github.com/qmk/qmk_toolbox) to flash the `.hex` file to it
+
+### Building from source
+
+There are currently three main ways to build HayBox:
+- Locally using PlatformIO IDE for VSCode or PlatformIO CLI
+- In the cloud using GitHub Codespaces
+- In the cloud using GitHub Actions
+
+Both GitHub Actions and GitHub Codespaces require you to create a GitHub account, but do not require you to install any dependencies on your local machine.
+
+#### Building locally
+
+The following dependencies are required when building locally:
+- [Git](https://git-scm.com/downloads) - required only if you are using a Pico
 - [PlatformIO IDE for VSCode](https://platformio.org/install/ide?install=vscode)
 
-### Installation
-
-Download and extract the
+After installing all of the requirements, download and extract the
 [latest HayBox release](https://github.com/JonnyHaystack/HayBox/releases),
 or clone the repository if you have git installed (which makes it easier for you
 to pull updates).
@@ -167,9 +103,23 @@ After that:
 5. If you see a message in the bottom bar saying "Rebuilding IntelliSense Index" or "Loading Project Tasks", wait for it to disappear. For Pico especially it may take quite a while the first time because it has to download 2-3GB of dependencies.
 6. Click **Build** (in the bottom left) and make sure everything compiles without
   errors
-7. This  next step differs depending on the microcontroller used in your controller.
+7. This next step differs depending on the microcontroller used in your controller.
     - **For Pico-based controllers**: hold the bootsel button while plugging it in (or your Start button if you already have HayBox installed) and then drag and drop the file `HayBox/.pio/build/<environment>/firmware.uf2` onto the RPI-RP2 drive that comes up.
     - **For Arduino-based controllers**: Plug in your controller via USB and click **Upload** (next to the Build button)
+
+#### Building using GitHub Codespaces
+
+This is probably the most convenient way to modify and rebuild HayBox, but bear in mind that GitHub's free tier places [some limitations](https://docs.github.com/en/billing/managing-billing-for-github-codespaces/about-billing-for-github-codespaces#monthly-included-storage-and-core-hours-for-personal-accounts) on how much you can use Codespaces each month. Because of this, you will want to make sure you shut down your Codespaces when you aren't using them, in order to maximise what you can get from your quota.
+
+First, create a GitHub account or just log in if you already have one, then [fork this repository](https://github.com/JonnyHaystack/HayBox/fork) and open your fork in a new Codespace by clicking the green Code button -> Codespaces -> Create codespace on master. This should open VS Code in your browser with all of the necessary extensions and dependencies pre-installed. From here, the process is much the same as [building locally](#building-locally), except you can't use the Upload button to flash the firmware. You will instead have to download the compiled binary from `HayBox/.pio/build/<environment>/` and flash it manually (see [here](#pre-built-binaries) for more on that).
+
+#### Building using GitHub Actions
+
+This repository contains a GitHub Actions workflow definition that builds each PlatformIO environment [specified in the matrix](https://github.com/JonnyHaystack/HayBox/blob/master/.github/workflows/build.yml#L13) on every push, and uploads firmware binaries as artifacts which you can download by clicking a specific workflow run from the [history](https://github.com/JonnyHaystack/HayBox/actions). You can create a fork of this repository and enable Actions by clicking Settings -> Actions -> General -> Select "Allow all actions and reusable workflows" -> Save.
+
+The fastest way to make changes if you only want to build via GitHub Actions is to use [github.dev](https://github.dev). You can do so by simply pressing `.` on your keyboard while you have your fork of this repository open, and it will open a VS Code editor in your browser. This does not give you the same development capabilities that you'd get in a Codespace, but it does allow you to make changes and commit them directly from your browser. Change whatever you'd like, then use the Source Control tab on the left to add, commit, and push your changes. Finally, go back to the repository and click on the Actions tab, click on your workflow run, and wait for it to build the artifact.
+
+If you are adding a new device config/PlatformIO environment, you will have to add the environment to the [matrix](https://github.com/JonnyHaystack/HayBox/blob/master/.github/workflows/build.yml#L13) in order for it to be built by the GitHub Actions workflow. You can also remove any environments from the matrix that you don't care about in order to reduce resource usage and potentially speed up your builds.
 
 ## Usage
 
@@ -181,7 +131,7 @@ To reboot Pico-based controllers into bootsel mode, hold Start on plugin.
 
 #### Brook board passthrough mode
 
-To switch to Brook board mode on GCCPCB2, GCCMX, B0XX R2, or LBX, hold B and R on
+To switch to Brook board mode on GCCPCB2, GCCMX, B0XX R2, or LBX, hold B on
 plugin.
 
 #### Communication backends (console selection)
@@ -238,9 +188,9 @@ indicate what communication backend and operating system they are for:
 To install the profile:
 1. Copy the appropriate .ini file from the `dolphin` folder within HayBox to the folder `<YourDolphinInstallation>\User\Config\Profiles\GCPad\` (create it if it does not exist)
 - For Slippi this should be
-  - On Windows: `%appdata%\Slippi Launcher\netplay\User\Config\Profiles\GCPad\` (if this doesn't work, try `...\netplay\Sys\User\...`)
+  - On Windows: `%appdata%\Slippi Launcher\netplay\User\Config\Profiles\GCPad\`
   - On Linux: `~/.config/SlippiOnline/Config/Profiles/GCPad/`
-  - On Mac: `Cmd + Shift + G` and enter the path `/Users/<USER>/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/Resources/User/Config/Profiles/GCPad`
+  - On Mac: `Cmd + Shift + G` and enter the path `/Users/<USER>/Library/Application Support/Slippi Launcher/netplay/Slippi Dolphin.app/Contents/Resources/Sys/Config/Profiles/GCPad`
 - For vanilla Dolphin: 
   - On Windows: `%userprofile%\Documents\Dolphin Emulator\Config\Profiles\GCPad\`
   - On Linux: `~/.config/dolphin-emu/Profiles/GCPad/`
