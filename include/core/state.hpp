@@ -20,8 +20,6 @@ typedef struct inputstate {
     bool y = false;
     bool l = false;
     bool r = false;
-    bool zr = false;
-    bool zl = false;
     bool z = false;
     bool lightshield = false;
     bool midshield = false;
@@ -30,13 +28,6 @@ typedef struct inputstate {
     bool home = false;
     bool mod_x = false;
     bool mod_y = false;
-
-    bool dpad_left = false;
-    bool dpad_right = false;
-    bool dpad_up = false;
-    bool dpad_down = false;
-
-    bool dpad_mod = false;
 
     // Nunchuk inputs.
     bool nunchuk_connected = false;

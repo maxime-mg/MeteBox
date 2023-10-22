@@ -8,14 +8,18 @@
 #define ANALOG_DEAD_MAX (128+22)/*this is in the deadzone*/
 #define ANALOG_STICK_MAX 208
 #define ANALOG_CROUCH (128-50)/*this y coordinate will hold a crouch*/
+#define ANALOG_TAPJUMP (128+53)/*this Y coordinate will tap jump always (running is less)*/
 #define ANALOG_DASH_LEFT (128-64)/*this x coordinate will dash left*/
 #define ANALOG_DASH_RIGHT (128+64)/*this x coordinate will dash right*/
 #define ANALOG_SDI_LEFT (128-56)/*this x coordinate will sdi left*/
 #define ANALOG_SDI_RIGHT (128+56)/*this x coordinate will sdi right*/
-#define MELEE_RIM_RAD2 6185/*if x^2+y^2 >= this, it's on the rim*/
+#define MELEE_RIM_RAD1 6185/*if x^2+y^2 >= this, it's on the rim and 6ms*/
+#define MELEE_RIM_RAD2 6858/*if x^2+y^2 >= this, it's past the rim and 7ms*/
+#define MELEE_RIM_RAD3 8979/*if x^2+y^2 >= this, it's past the rim and 8ms*/
 
-#define TRAVELTIME_EASY 6//ms
-#define TRAVELTIME_EASY2 4//ms
+#define TRAVELTIME_EASY1 6//ms
+#define TRAVELTIME_EASY2 7//ms
+#define TRAVELTIME_EASY3 8//ms
 #define TRAVELTIME_CROSS 12//ms to cross gate; unused
 #define TRAVELTIME_INTERNAL 12//ms for "easy" to "internal"; 2/3 frame
 #define TRAVELTIME_SLOW (4*16)//ms for tap SDI nerfing, 4 frames
@@ -36,6 +40,8 @@
 #define TIMELIMIT_TAP_PLUS 34000//(16*8.5*250)//units of 4us; 3 additional frames
 
 #define TIMELIMIT_CARDIAG 32000//(16*8*250)//units of 4us; 8 frames
+
+#define TIMELIMIT_WANK 22000//(16*5.5*250)//units of 4us; 5.5 frames
 
 #define TIMELIMIT_PIVOTTILT 32000//(16*8*250)//units of 4us; 8 frames
 
@@ -78,35 +84,32 @@ typedef struct {
     bool stale;
 } pivotzonestate;
 
-bool isEasy(const uint8_t x, const uint8_t y, const abtest whichAB) {
-    //is it in the deadzone?
-    if(x >= ANALOG_DEAD_MIN && x <= ANALOG_DEAD_MAX && y >= ANALOG_DEAD_MIN && y <= ANALOG_DEAD_MAX) {
-        /*
-        if(whichAB == AB_A) {
-            return true;
-        } else {
-            return false;
-        }*/
-        return false;
-    } else {
-        //is it on the rim?
-        const uint8_t xnorm = (x > ANALOG_STICK_NEUTRAL ? (x-ANALOG_STICK_NEUTRAL) : (ANALOG_STICK_NEUTRAL-x));
-        const uint8_t ynorm = (y > ANALOG_STICK_NEUTRAL ? (y-ANALOG_STICK_NEUTRAL) : (ANALOG_STICK_NEUTRAL-y));
-        const uint16_t xsquared = xnorm*xnorm;
-        const uint16_t ysquared = ynorm*ynorm;
-        if((xsquared+ysquared) >= MELEE_RIM_RAD2) {
-            //is it within 6 units of the diagonal?
-            const uint8_t diagMax = max(xnorm, ynorm);
-            const uint8_t diagMin = max(xnorm, ynorm);
-            const uint8_t diff = diagMax - diagMin;
-            if(diff <= 6) {
-                return true;
+uint8_t isEasy(const uint8_t x, const uint8_t y) {
+    //is it on the rim?
+    const uint8_t xnorm = (x > ANALOG_STICK_NEUTRAL ? (x-ANALOG_STICK_NEUTRAL) : (ANALOG_STICK_NEUTRAL-x));
+    const uint8_t ynorm = (y > ANALOG_STICK_NEUTRAL ? (y-ANALOG_STICK_NEUTRAL) : (ANALOG_STICK_NEUTRAL-y));
+    const uint16_t xsquared = xnorm*xnorm;
+    const uint16_t ysquared = ynorm*ynorm;
+    const uint16_t radSquared = xsquared+ysquared;
+    if((radSquared) >= MELEE_RIM_RAD1) {
+        //is it within 3 units of the diagonal? or is it a cardinal?
+        const uint8_t diagMax = max(xnorm, ynorm);
+        const uint8_t diagMin = min(xnorm, ynorm);
+        const uint8_t diff = diagMax - diagMin;
+        if(diff <= 6 || xnorm == 0 || ynorm == 0) {
+            //if so, yes
+            if(radSquared >= MELEE_RIM_RAD3) {
+                return 3;
+            } else if(radSquared >= MELEE_RIM_RAD2) {
+                return 2;
             } else {
-                return false;
+                return 1;
             }
         } else {
-            return false;
+            return 0;
         }
+    } else {
+        return 0;
     }
 }
 
@@ -128,21 +131,9 @@ void randomizeCoord(uint8_t &x, uint8_t &y) {
     //middle is when random & 0b01xx or 0b10xx
     const uint8_t down = ((random ^ 0b1100) & 0b1100) == 0;
 
-    //don't randomize when x or y are neutral, except for 1.0 cardinals
-    if(y > ANALOG_STICK_MAX || y < ANALOG_STICK_MIN) {//any chance at 1.0 cardinals vertically
-        //50% chance of not getting 1.0 (done by restricting magnitude)
-        //if you do it by perturbing in x, then it might not work on ucf 0.84+ with y > 80
-        y = (left+right > 0) ? max(ANALOG_STICK_MIN+1, min(ANALOG_STICK_MAX-1, y)) : y;
-    } else {// not 1.0 vertically
-        x = (x != ANALOG_STICK_NEUTRAL) ? x - left + right : x;
-    }
-    if(x > ANALOG_STICK_MAX || x < ANALOG_STICK_MIN) {//any chance at 1.0 cardinals horizontally
-        //50% chance of not getting 1.0 (done by restricting magnitude)
-        //if you do it by perturbing in y, then it might not work on ucf 0.84+ with x > 80
-        x = (up+down > 0) ? max(ANALOG_STICK_MIN+1, min(ANALOG_STICK_MAX-1, x)) : x;
-    } else {// not 1.0 horizontally
-        y = (y != ANALOG_STICK_NEUTRAL) ? y - down + up : y;
-    }
+    //don't randomize when x or y are neutral
+    x = (x != ANALOG_STICK_NEUTRAL) ? x - left + right : x;
+    y = (y != ANALOG_STICK_NEUTRAL) ? y - down + up : y;
 }
 
 uint8_t lookback(const uint8_t currentIndex,
@@ -275,22 +266,57 @@ uint8_t isTapSDI(const sdizonestate zoneHistory[HISTORYLEN],
             diagZone = diagZone & zoneList[i];//if two of these don't match, it'll have zero or one bits set
         }
     }
-    //check the bit count of diagonal matching
-    const bool diagMatch = popcount_zone(diagZone) == 2;
-    //check whether it returned to center recently
-    //const bool recentOrig = (zoneList[1] & zoneList[2]) == 0;//may be too lenient in case people throw in modifier taps?
-    //check whether the input was fast enough
-    const bool shortTime = ((timeList[0] - timeList[4])*sampleSpacing < TIMELIMIT_CARDIAG) &&
-                           ((timeList[0] - timeList[1])*sampleSpacing > TIMELIMIT_SIMUL) &&
-                           !staleList[4];
+    {//to limit scope of these vars
+        //check the bit count of diagonal matching
+        const bool diagMatch = popcount_zone(diagZone) == 2;
+        //check whether it returned to center recently
+        //const bool recentOrig = (zoneList[1] & zoneList[2]) == 0;//may be too lenient in case people throw in modifier taps?
+        //check whether the input was fast enough
+        const bool shortTime = ((timeList[0] - timeList[4])*sampleSpacing < TIMELIMIT_CARDIAG) &&
+                               ((timeList[0] - timeList[1])*sampleSpacing > TIMELIMIT_SIMUL) &&
+                               !staleList[4];
 
-    //if it hit only one cardinal
-    //             if only the same diagonal was pressed
-    //                          if the origin, cardinal, and diagonal were all entered
-    //                                                                 if there were either two cardinals or two origins (to prevent dash-diagonal-mod from triggering this)
-    //                                                                                                     within the time limit
-    if(diagMatch && origCount && cardCount && diagCount > 1 && shortTime) {
-        output = output | BITS_SDI_TAP_CRDG;
+        // if only the same diagonal was pressed
+        //              if the origin, cardinal, and two diagonals were all entered
+        //                                                         within the time limit
+        if(diagMatch && origCount && cardCount && diagCount > 1 && shortTime) {
+            output = output | BITS_SDI_TAP_CRDG;
+        }
+    }
+
+    //3 input sdi
+    //center-cardinal-diagonal-diagonal
+    //center-cardinal-diagonal-same cardinal-diagonal
+    //all directions except center must be the same
+    uint8_t cardZone = 0b1111'1111;
+    diagZone = 0b1111'1111;
+    origCount = 0;
+    cardCount = 0;
+    diagCount = 0;
+    for(int i = 0; i < historyLength; i++) {
+        const uint8_t popcnt = popcount_zone(zoneList[i]);
+        if(popcnt == 0) {
+            origCount++;
+            break;//stop counting once there's an origin
+        } else if(popcnt == 1) {
+            cardCount++;
+            cardZone = cardZone & zoneList[i];//if there are two different cardinals then it won't count
+        } else {
+            diagCount++;
+            diagZone = diagZone & zoneList[i];//if two of these don't match, it'll have zero or one bits set
+        }
+    }
+    {//to limit scope of these vars
+        //check the bit count of diagonal matching
+        const bool adjacentDiag = popcount_zone(diagZone & cardZone) == 1;
+        const bool shortTime = ((timeList[0] - timeList[3])*sampleSpacing < TIMELIMIT_WANK) &&
+                               !staleList[3];
+        //if it hit two different diagonals
+        //                 hit origin, at least one cardinal, and two diagonals
+        //                                                            within the time limit
+        if(adjacentDiag && origCount && cardCount && diagCount > 1 && shortTime) {
+            output = output | BITS_SDI_WANK;
+        }
     }
 
     //return the last cardinal in the zone list before the last diagonal, useful for SDI diagonal nerfs.
@@ -357,18 +383,6 @@ void travelTimeCalc(const uint16_t samplesElapsed,
         outX = destX;
         outY = destY;
     }
-
-    //one frame after travel time completes, snap to 1.0 cardinals
-    const uint16_t cardinalDelay = msTravel + 16;
-    if((timeElapsed > cardinalDelay) || oldChange) {
-        //we disabled 1.0 cardinals by reducing the magnitude to 79, so we restore them here
-        if(targetX <= ANALOG_STICK_MIN || targetX >= ANALOG_STICK_MAX) {
-            outX = targetX;
-        }
-        if(targetY <= ANALOG_STICK_MIN || targetY >= ANALOG_STICK_MAX) {
-            outY = targetY;
-        }
-    }
 }
 
 void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
@@ -425,9 +439,6 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
     static uint8_t currentIndexA = 0;
     static uint8_t currentIndexSDI = 0;
 
-    //use travel time vs use delay
-    static bool useDelay = true;
-
     //calculate travel from the previous step
     uint8_t prelimAX;
     uint8_t prelimAY;
@@ -442,7 +453,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
                    aHistory[currentIndexA].y_start,
                    aHistory[currentIndexA].x_end,
                    aHistory[currentIndexA].y_end,
-                   useDelay,
+                   /*useDelay*/false,
                    oldA,
                    prelimAX,
                    prelimAY);
@@ -531,6 +542,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
         pivotTilt = true;
         upTilt = true;
     }
+    /*actually, pivot ftilt doesn't need nerfing
     //if it's a ftilt coordinate, make X dash/smash
     //we need to use raw input in instead of prelim because that gets caught by travel time for a moment
     if(direction == P_Leftright && rawOutputIn.leftStickX < ANALOG_DEAD_MIN) {
@@ -541,6 +553,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
         //prelimAX = 255;
         pivotTilt = true;
     }
+    */
 
     //If there's a pivot tilt, preserve the angle as best as possible but maximize the radius
     int16_t xCoord = max(-127, min(127, prelimAX - ANALOG_STICK_NEUTRAL));//-127 to 127
@@ -559,8 +572,8 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
     if(pivotTilt) {
         int16_t tempX = (xCoord*stretchMult) >> 1;
         int16_t tempY = (yCoord*stretchMult) >> 1;
-        prelimAX = ANALOG_STICK_NEUTRAL + tempX;
         if(!upTilt) {//preserve angles for downward ones only
+            prelimAX = ANALOG_STICK_NEUTRAL + tempX;
             prelimAY = ANALOG_STICK_NEUTRAL + tempY;
         } else {//prevent pivot up-angled ftilt
             prelimAY = 255;
@@ -581,7 +594,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
 
     //increment timeSinceJump unless you want to trigger a jump
     timeSinceJump = min(timeSinceJump+1, 100);
-    if(timeSinceCrouch*sampleSpacing < TIMELIMIT_DOWNUP && prelimAY > ANALOG_DEAD_MAX && !downUpJumping) {
+    if(timeSinceCrouch*sampleSpacing < TIMELIMIT_DOWNUP && prelimAY > ANALOG_DEAD_MAX && prelimAY < ANALOG_TAPJUMP && !downUpJumping) {
         downUpJumping = true;
         timeSinceJump = 0;
     }
@@ -595,7 +608,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
     //if it's wank sdi (TODO) or diagonal tap SDI, lock out the cross axis
     const uint8_t sdi = isTapSDI(sdiZoneHist, currentIndexSDI, currentTime, sampleSpacing);
     static bool wankNerf = false;
-    if(sdi & (BITS_SDI_TAP_DIAG | BITS_SDI_TAP_CRDG)){
+    if(sdi & (BITS_SDI_TAP_DIAG | BITS_SDI_TAP_CRDG | BITS_SDI_WANK)){
         if(sdi & (ZONE_L | ZONE_R)) {
             //lock the cross axis
             prelimAY = ANALOG_STICK_NEUTRAL;
@@ -671,28 +684,21 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
         aHistory[currentIndexA].x_start = prelimAX;
         aHistory[currentIndexA].y_start = prelimAY;
 
-        uint8_t prelimTT = TRAVELTIME_EASY;
+        uint8_t prelimTT = TRAVELTIME_EASY1;
         //if the destination is not an "easy" coordinate
-        if(!isEasy(xIn, yIn, whichAB)) {
-            prelimTT = max(prelimTT, TRAVELTIME_INTERNAL);
-            useDelay = false;
+        const uint8_t easiness = isEasy(xIn, yIn);
+        if(easiness == 1) {
+            prelimTT = TRAVELTIME_EASY1;
+        } else if(easiness == 2) {
+            prelimTT = TRAVELTIME_EASY2;
+        } else if(easiness == 3) {
+            prelimTT = TRAVELTIME_EASY3;
         } else {
-            prelimTT = TRAVELTIME_EASY;
-            useDelay = false;
-            /*
-            if(whichAB == AB_A) {//4ms linear jump
-                prelimTT = TRAVELTIME_EASY2;
-                useDelay = true;
-            } else {//no travel time for rim for the B version
-                prelimTT = 0;
-                useDelay = true;
-            }
-            */
+            prelimTT = TRAVELTIME_INTERNAL;
         }
         //if cardinal tap SDI
         if(sdi & BITS_SDI_TAP_CARD) {
             prelimTT = max(prelimTT, TRAVELTIME_SLOW);
-            useDelay = false;
         }
         /*
         //if the destination is on the opposite side from the current prelim coord
