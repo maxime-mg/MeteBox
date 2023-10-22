@@ -1,17 +1,19 @@
 #include "modes/Melee24Button.hpp"
 
+//unified angles
+
 #define ANALOG_STICK_MIN 48
 #define ANALOG_STICK_NEUTRAL 128
 #define ANALOG_STICK_MAX 208
 
-Melee24Button::Melee24Button(socd::SocdType socd_type, Melee24ButtonOptions options)
-    : ControllerMode(socd_type) {
+Melee24Button::Melee24Button(socd::SocdType socd_type, Melee24ButtonOptions options) {
+    socd_type = MELEE_SOCD;
     _socd_pair_count = 4;
     _socd_pairs = new socd::SocdPair[_socd_pair_count]{
-        socd::SocdPair{&InputState::left,    &InputState::right  },
-        socd::SocdPair{ &InputState::down,   &InputState::up     },
-        socd::SocdPair{ &InputState::c_left, &InputState::c_right},
-        socd::SocdPair{ &InputState::c_down, &InputState::c_up   },
+        socd::SocdPair{&InputState::left,    &InputState::right,   socd_type},
+        socd::SocdPair{ &InputState::down,   &InputState::up,      socd_type},
+        socd::SocdPair{ &InputState::c_left, &InputState::c_right, socd_type},
+        socd::SocdPair{ &InputState::c_down, &InputState::c_up,    socd_type},
     };
 
     _options = options;
@@ -29,21 +31,17 @@ void Melee24Button::UpdateDigitalOutputs(InputState &inputs, OutputState &output
     outputs.x = inputs.x;
     outputs.y = inputs.y;
     outputs.buttonR = inputs.z;
-    if (inputs.nunchuk_connected) {
-        outputs.triggerLDigital = inputs.nunchuk_z;
-    } else {
-        outputs.triggerLDigital = inputs.l || inputs.zr;
-    }
-    outputs.triggerRDigital = inputs.r || inputs.zr;
+    outputs.triggerLDigital = inputs.l;
+    outputs.triggerRDigital = inputs.r;
     outputs.start = inputs.start;
-
-    // If D-Pad mod isn't held, left and down are Mod X and Mod Y
+    
+    // Activate D-Pad layer by holding D-Pad mod
     if (inputs.dpad_mod) {
         outputs.dpadUp = inputs.dpad_up;
         outputs.dpadDown = inputs.mod_y;
         outputs.dpadLeft = inputs.mod_x;
         outputs.dpadRight = inputs.dpad_right;
-    }
+    }    
 }
 
 void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs) {
@@ -57,23 +55,25 @@ void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
         inputs.c_right,
         inputs.c_down,
         inputs.c_up,
-        ANALOG_STICK_MIN,
+        /*ANALOG_STICK_MIN*/ANALOG_STICK_NEUTRAL - 112,
         ANALOG_STICK_NEUTRAL,
-        ANALOG_STICK_MAX,
+        /*ANALOG_STICK_MAX*/ANALOG_STICK_NEUTRAL + 112,
         outputs
     );
 
-    bool shield_button_pressed = inputs.l || inputs.r || inputs.zr || inputs.lightshield || inputs.midshield;
+    bool shield_button_pressed = inputs.l || inputs.r || inputs.lightshield || inputs.midshield;
     if (directions.diagonal) {
         // q1/2 = 7000 7000
-        outputs.leftStickX = 128 + (directions.x * 56);
-        outputs.leftStickY = 128 + (directions.y * 56);
-        // L, R, LS, and MS + q3/4 = 7000 6875 (For vanilla shield drop. Gives 44.5
+        // actually 6875 7125 to account for randomness
+        outputs.leftStickX = 128 + (directions.x * 55);
+        outputs.leftStickY = 128 + (directions.y * 57);
+        // L, R, LS, and MS + q3/4 = 7125 6875 (For vanilla shield drop. Gives 44.5
         // degree wavedash). Also used as default q3/4 diagonal if crouch walk option select is
         // enabled.
+        // actually 7250 6750 to account for randomness
         if (directions.y == -1 && (shield_button_pressed || _options.crouch_walk_os)) {
-            outputs.leftStickX = 128 + (directions.x * 56);
-            outputs.leftStickY = 128 + (directions.y * 55);
+            outputs.leftStickX = 128 + (directions.x * 58);
+            outputs.leftStickY = 128 + (directions.y * 54);
         }
     }
 
@@ -83,71 +83,75 @@ void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
             outputs.leftStickX = 128 + (directions.x * 53);
         }
         // MX + Vertical (even if shield is held) = 5375 = 43
+        // y=-0.5500 (44) is solo nana ice block, so we reduce this by one
+        // MX + Vertical (even if shield is held) = 5250 = 42
         if (directions.vertical) {
-            outputs.leftStickY = 128 + (directions.y * 43);
+            outputs.leftStickY = 128 + (directions.y * 42);
         }
+        /* no more wavedash nerf
         if (directions.diagonal && shield_button_pressed) {
             // MX + L, R, LS, and MS + q1/2/3/4 = 6375 3750 = 51 30
             outputs.leftStickX = 128 + (directions.x * 51);
             outputs.leftStickY = 128 + (directions.y * 30);
         }
+        */
 
         /* Up B angles */
-        if (directions.diagonal && !shield_button_pressed) {
-            // 22.9638 - 7375 3125 = 59 25
-            outputs.leftStickX = 128 + (directions.x * 59);
-            outputs.leftStickY = 128 + (directions.y * 25);
-            // 27.37104 - 7000 3625 (27.38) = 56 29
-            if (inputs.c_down) {
-                outputs.leftStickX = 128 + (directions.x * 56);
-                outputs.leftStickY = 128 + (directions.y * 29);
-            }
-            // 31.77828 - 7875 4875 (31.76) = 63 39
-            if (inputs.c_left) {
-                outputs.leftStickX = 128 + (directions.x * 63);
-                outputs.leftStickY = 128 + (directions.y * 39);
-            }
-            // 36.18552 - 7000 5125 (36.21) = 56 41
-            if (inputs.c_up) {
-                outputs.leftStickX = 128 + (directions.x * 56);
-                outputs.leftStickY = 128 + (directions.y * 41);
-            }
-            // 40.59276 - 6125 5250 (40.6) = 49 42
-            if (inputs.c_right) {
-                outputs.leftStickX = 128 + (directions.x * 49);
-                outputs.leftStickY = 128 + (directions.y * 42);
-            }
-
-            /* Extended Up B Angles */
-            if (inputs.b) {
-                // 22.9638 - 9125 3875 (23.0) = 73 31
-                outputs.leftStickX = 128 + (directions.x * 73);
-                outputs.leftStickY = 128 + (directions.y * 31);
-                // 27.37104 - 8750 4500 (27.2) = 70 36
+        if (directions.diagonal /*&& !shield_button_pressed*/) {
+            if (!inputs.b) {
+                // 6750 3125 - 24.84deg - 54 25 - modX
+                // 6750 3625 - 28.24deg - 54 29 - modX + cDown
+                // 6625 4125 - 31.91deg - 53 33 - modX + cLeft
+                // 6375 4625 - 35.96deg - 51 37 - modX + cUp
+                // 6125 5125 - 39.92deg - 49 41 - modX + cRight
+                outputs.leftStickX = 128 + (directions.x * 54);
+                outputs.leftStickY = 128 + (directions.y * 25);
+                if (inputs.c_down) {
+                    outputs.leftStickX = 128 + (directions.x * 54);
+                    outputs.leftStickY = 128 + (directions.y * 29);
+                }
+                if (inputs.c_left) {
+                    outputs.leftStickX = 128 + (directions.x * 53);
+                    outputs.leftStickY = 128 + (directions.y * 33);
+                }
+                if (inputs.c_up) {
+                    outputs.leftStickX = 128 + (directions.x * 51);
+                    outputs.leftStickY = 128 + (directions.y * 37);
+                }
+                if (inputs.c_right) {
+                    outputs.leftStickX = 128 + (directions.x * 49);
+                    outputs.leftStickY = 128 + (directions.y * 41);
+                }
+            } else {
+                /* Extended Up B Angles */
+                // 9000 4125 - 24.62deg - 72 33 - modX + B
+                // 8750 4750 - 28.50deg - 70 38 - modX + B + cDown
+                // 8500 5250 - 31.70deg - 68 42 - modX + B + cLeft
+                // 7250 5250 - 35.91deg - 58 42 - modX + B + cUp
+                // 6375 5250 - 39.47deg - 51 42 - modX + B + cRight
+                outputs.leftStickX = 128 + (directions.x * 72);
+                outputs.leftStickY = 128 + (directions.y * 33);
                 if (inputs.c_down) {
                     outputs.leftStickX = 128 + (directions.x * 70);
-                    outputs.leftStickY = 128 + (directions.y * 36);
+                    outputs.leftStickY = 128 + (directions.y * 38);
                 }
-                // 31.77828 - 8500 5250 (31.7) = 68 42
                 if (inputs.c_left) {
                     outputs.leftStickX = 128 + (directions.x * 68);
                     outputs.leftStickY = 128 + (directions.y * 42);
                 }
-                // 36.18552 - 7375 5375 (36.1) = 59 43
                 if (inputs.c_up) {
-                    outputs.leftStickX = 128 + (directions.x * 59);
-                    outputs.leftStickY = 128 + (directions.y * 43);
+                    outputs.leftStickX = 128 + (directions.x * 58);
+                    outputs.leftStickY = 128 + (directions.y * 42);
                 }
-                // 40.59276 - 6375 5375 (40.1) = 51 43
                 if (inputs.c_right) {
                     outputs.leftStickX = 128 + (directions.x * 51);
-                    outputs.leftStickY = 128 + (directions.y * 43);
+                    outputs.leftStickY = 128 + (directions.y * 42);
                 }
             }
         }
 
         // Angled fsmash
-        if (directions.cx != 0) {
+        if (directions.cx != 0 && directions.y != 0) {
             // 8500 5250 = 68 42
             outputs.rightStickX = 128 + (directions.cx * 68);
             outputs.rightStickY = 128 + (directions.y * 42);
@@ -159,10 +163,17 @@ void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
         if (directions.horizontal) {
             outputs.leftStickX = 128 + (directions.x * 27);
         }
+        // Turnaround neutral B nerf
+        /* no more turnaround neutral b nerf
+        if (inputs.b) {
+            outputs.leftStickX = 128 + (directions.x * 80);
+        }
+        */
         // MY + Vertical (even if shield is held) = 7375 = 59
         if (directions.vertical) {
             outputs.leftStickY = 128 + (directions.y * 59);
         }
+        /* no more wavedash nerf
         if (directions.diagonal && shield_button_pressed) {
             // MY + L, R, LS, and MS + q1/2 = 4750 8750 = 38 70
             outputs.leftStickX = 128 + (directions.x * 38);
@@ -173,61 +184,57 @@ void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
                 outputs.leftStickY = 128 + (directions.y * 68);
             }
         }
-
-        // Turnaround neutral B nerf
-        if (inputs.b) {
-            outputs.leftStickX = 128 + (directions.x * 80);
-        }
+        */
 
         /* Up B angles */
-        if (directions.diagonal && !shield_button_pressed) {
-            // 67.0362 - 3125 7375 = 25 59
-            outputs.leftStickX = 128 + (directions.x * 25);
-            outputs.leftStickY = 128 + (directions.y * 59);
-            // 62.62896 - 3625 7000 (62.62) = 29 56
-            if (inputs.c_down) {
-                outputs.leftStickX = 128 + (directions.x * 29);
-                outputs.leftStickY = 128 + (directions.y * 56);
-            }
-            // 58.22172 - 4875 7875 (58.24) = 39 63
-            if (inputs.c_left) {
-                outputs.leftStickX = 128 + (directions.x * 39);
-                outputs.leftStickY = 128 + (directions.y * 63);
-            }
-            // 53.81448 - 5125 7000 (53.79) = 41 56
-            if (inputs.c_up) {
-                outputs.leftStickX = 128 + (directions.x * 41);
-                outputs.leftStickY = 128 + (directions.y * 56);
-            }
-            // 49.40724 - 6375 7625 (50.10) = 51 61
-            if (inputs.c_right) {
-                outputs.leftStickX = 128 + (directions.x * 51);
+        if (directions.diagonal /*&& !shield_button_pressed*/) {
+            if (!inputs.b) {
+                // 3250 7625 - 23.09deg - 26 61 - modY
+                // 3625 7000 - 27.38deg - 29 56 - modY + cDown
+                // 4375 7000 - 32.01deg - 35 56 - modY + cLeft
+                // 5125 7000 - 36.21deg - 41 56 - modY + cUp
+                // 5750 7125 - 38.90deg - 46 57 - modY + cRight
+                outputs.leftStickX = 128 + (directions.x * 26);
                 outputs.leftStickY = 128 + (directions.y * 61);
-            }
-
-            /* Extended Up B Angles */
-            if (inputs.b) {
-                // 67.0362 - 3875 9125 = 31 73
+                if (inputs.c_down) {
+                    outputs.leftStickX = 128 + (directions.x * 29);
+                    outputs.leftStickY = 128 + (directions.y * 56);
+                }
+                if (inputs.c_left) {
+                    outputs.leftStickX = 128 + (directions.x * 35);
+                    outputs.leftStickY = 128 + (directions.y * 56);
+                }
+                if (inputs.c_up) {
+                    outputs.leftStickX = 128 + (directions.x * 41);
+                    outputs.leftStickY = 128 + (directions.y * 56);
+                }
+                if (inputs.c_right) {
+                    outputs.leftStickX = 128 + (directions.x * 46);
+                    outputs.leftStickY = 128 + (directions.y * 57);
+                }
+            } else {
+                /* Extended Up B Angles */
+                // 3875 9125 - 23.01deg - 31 73 - modY + B
+                // 4625 8750 - 27.86deg - 37 70 - modY + B + cDown
+                // 5250 8500 - 31.70deg - 42 68 - modY + B + cLeft
+                // 5750 7875 - 36.14deg - 46 63 - modY + B + cUp
+                // 5750 7125 - 38.90deg - 46 57 - modY + B + cRight
                 outputs.leftStickX = 128 + (directions.x * 31);
                 outputs.leftStickY = 128 + (directions.y * 73);
-                // 62.62896 - 4500 8750 (62.8) = 36 70
                 if (inputs.c_down) {
-                    outputs.leftStickX = 128 + (directions.x * 36);
+                    outputs.leftStickX = 128 + (directions.x * 37);
                     outputs.leftStickY = 128 + (directions.y * 70);
                 }
-                // 58.22172 - 5250 8500 (58.3) = 42 68
                 if (inputs.c_left) {
                     outputs.leftStickX = 128 + (directions.x * 42);
                     outputs.leftStickY = 128 + (directions.y * 68);
                 }
-                // 53.81448 - 5875 8000 (53.7) = 47 64
                 if (inputs.c_up) {
-                    outputs.leftStickX = 128 + (directions.x * 47);
-                    outputs.leftStickY = 128 + (directions.y * 64);
+                    outputs.leftStickX = 128 + (directions.x * 46);
+                    outputs.leftStickY = 128 + (directions.y * 63);
                 }
-                // 49.40724 - 5875 7125 (50.49) = 47 57
                 if (inputs.c_right) {
-                    outputs.leftStickX = 128 + (directions.x * 47);
+                    outputs.leftStickX = 128 + (directions.x * 46);
                     outputs.leftStickY = 128 + (directions.y * 57);
                 }
             }
@@ -242,11 +249,13 @@ void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
         outputs.rightStickY = 128 + (directions.cy * 68);
     }
 
+    /*
     // Horizontal SOCD overrides X-axis modifiers (for ledgedash maximum jump
     // trajectory).
     if (_horizontal_socd && !directions.vertical) {
         outputs.leftStickX = 128 + (directions.x * 80);
     }
+    */
 
     if (inputs.lightshield) {
         outputs.triggerRAnalog = 49;
@@ -266,11 +275,5 @@ void Melee24Button::UpdateAnalogOutputs(InputState &inputs, OutputState &outputs
     if ((inputs.mod_x && inputs.mod_y) || inputs.nunchuk_c) {
         outputs.rightStickX = 128;
         outputs.rightStickY = 128;
-    }
-
-    // Nunchuk overrides left stick.
-    if (inputs.nunchuk_connected) {
-        outputs.leftStickX = inputs.nunchuk_x;
-        outputs.leftStickY = inputs.nunchuk_y;
     }
 }

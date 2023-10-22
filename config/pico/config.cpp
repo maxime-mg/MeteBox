@@ -15,6 +15,7 @@
 #include "input/NunchukInput.hpp"
 #include "joybus_utils.hpp"
 #include "modes/Melee20Button.hpp"
+#include "modes/Melee24Button.hpp"
 #include "stdlib.hpp"
 
 #include <pico/bootrom.h>
@@ -151,37 +152,42 @@ KeyboardMode *current_kb_mode = nullptr;
 
 GpioButtonMapping button_mappings[] = {
 #ifndef ALTMAP
-    {&InputState::l,            5 },
-    { &InputState::left,        4 },
-    { &InputState::down,        3 },
+    { &InputState::start,       0 },
+
+    { &InputState::l,           20},
+    { &InputState::up,          1 },
     { &InputState::right,       2 },
+    { &InputState::down,        3 },
+    { &InputState::left,        4 },
 
     { &InputState::mod_x,       6 },
     { &InputState::mod_y,       7 },
 
-    { &InputState::select,      10},
-    { &InputState::start,       0 },
-    { &InputState::home,        11},
+    { &InputState::a,           8 },
+    { &InputState::c_up,        9 },
+    { &InputState::c_right,     10},
+    { &InputState::c_down,      11},
+    { &InputState::c_left,      12},
 
-    { &InputState::c_left,      13},
-    { &InputState::c_up,        12},
-    { &InputState::c_down,      15},
-    { &InputState::a,           14},
-    { &InputState::c_right,     16},
+    { &InputState::b,           13},
+    { &InputState::z,           17},
+    { &InputState::y,           15},
+    { &InputState::x,           14},
+    { &InputState::r,           5 },
+    { &InputState::zrl,         19 },
+    
 
-    { &InputState::b,           26},
-    { &InputState::x,           21},
-    { &InputState::z,           19},
-    { &InputState::up,          17},
+    { &InputState::dpad_up,     21},
+    { &InputState::dpad_right,  22},
+    { &InputState::dpad_mod,    26},
 
-    { &InputState::r,           27},
-    { &InputState::y,           22},
-    { &InputState::lightshield, 20},
-    { &InputState::midshield,   18},
+    { &InputState::lightshield, 16},
+    { &InputState::midshield,   18}
+};
 #else
 ALTMAP
 #endif
-};
+
 size_t button_count = sizeof(button_mappings) / sizeof(GpioButtonMapping);
 
 const Pinout pinout = {
@@ -274,7 +280,7 @@ void setup() {
 
     // Default to Melee mode.
     primary_backend->SetGameMode(
-        new Melee20Button(socd::SOCD_2IP_NO_REAC, { .crouch_walk_os = use_crouchwalk, .teleport_coords = use_teleport })
+        new Melee24Button(socd::SOCD_2IP_NO_REAC, { .crouch_walk_os = use_crouchwalk, .teleport_coords = use_teleport })
     );
 }
 
