@@ -16,6 +16,7 @@
 #include "joybus_utils.hpp"
 #include "modes/Melee20Button.hpp"
 #include "modes/Melee24Button.hpp"
+#include "modes/SSB64.hpp"
 #include "stdlib.hpp"
 
 #include <pico/bootrom.h>
@@ -214,11 +215,7 @@ void setup() {
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
-
-    // Debug output for timing stuff on gp1
-    gpio_init(1);
-    gpio_set_dir(1, GPIO_OUT);
-
+    
     // Create array of input sources to be used.
     static InputSource *input_sources[] = { gpio_input };
     size_t input_source_count = sizeof(input_sources) / sizeof(InputSource *);
@@ -261,6 +258,17 @@ void setup() {
                 new GamecubeBackend(input_sources, input_source_count, pinout.joybus_data, !button_holds.a);
         } else if (console == ConnectedConsole::N64) {
             primary_backend = new N64Backend(input_sources, input_source_count, pinout.joybus_data);
+
+            if (button_holds.a) {
+                primary_backend->SetGameMode(
+                    new SSB64(socd::SOCD_2IP_NO_REAC, true)
+                );
+            }
+            else {
+                primary_backend->SetGameMode(
+                    new SSB64(socd::SOCD_2IP_NO_REAC)
+                );
+            }
         }
 
         // If console then only using 1 backend (no input viewer).
