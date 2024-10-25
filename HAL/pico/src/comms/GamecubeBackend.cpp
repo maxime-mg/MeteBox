@@ -127,8 +127,7 @@ void GamecubeBackend::SendReport() {
             // Run gamemode logic.
             UpdateOutputs();
 
-            //if(_nerfOn) {
-            if(true) {
+            if(_gamemode->isMelee()) {
                 //APPLY NERFS HERE
                 OutputState nerfedOutputs;
                 limitOutputs(sampleSpacing/4, _nerfOn ? AB_A : AB_B, _inputs, _outputs, nerfedOutputs);
@@ -181,6 +180,11 @@ void GamecubeBackend::SendReport() {
         if(loopTime > minLoop+(minLoop >> 1)) {//if the loop time is 50% longer than expected
             detect = true;//stop scanning inputs briefly and re-measure timings
             loopCount = 0;
+            sampleCount = 1;
+            sampleSpacing = 0;
+            oldSampleTime = 0;
+            newSampleTime = 0;
+            loopTime = 0;
         }
     }
 

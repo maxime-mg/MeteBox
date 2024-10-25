@@ -1,4 +1,5 @@
 #include "modes/MeleeLimits.hpp"
+//#include "modes/Fixed.h"
 
 #define HISTORYLEN 5//changes in target stick position
 
@@ -13,16 +14,17 @@
 #define ANALOG_DASH_RIGHT (128+64)/*this x coordinate will dash right*/
 #define ANALOG_SDI_LEFT (128-56)/*this x coordinate will sdi left*/
 #define ANALOG_SDI_RIGHT (128+56)/*this x coordinate will sdi right*/
+#define MELEE_SDI_RAD 3136/* if x^2+y^2 >= this, it's diagonal SDI*/
 #define MELEE_RIM_RAD1 6185/*if x^2+y^2 >= this, it's on the rim and 6ms*/
 #define MELEE_RIM_RAD2 6858/*if x^2+y^2 >= this, it's past the rim and 7ms*/
 #define MELEE_RIM_RAD3 8979/*if x^2+y^2 >= this, it's past the rim and 8ms*/
 
 #define TRAVELTIME_EASY1 6//ms
 #define TRAVELTIME_EASY2 7//ms
-#define TRAVELTIME_EASY3 8//ms
+#define TRAVELTIME_EASY3 8//ms for 112+cubic it takes 83% to get to dash, for 80+linear it takes 80% to get to dash
 #define TRAVELTIME_CROSS 12//ms to cross gate; unused
 #define TRAVELTIME_INTERNAL 12//ms for "easy" to "internal"; 2/3 frame
-#define TRAVELTIME_SLOW (4*16)//ms for tap SDI nerfing, 4 frames
+#define TRAVELTIME_SLOW (5.5*16)//ms for tap SDI nerfing, 4 frames
 
 #define TIMELIMIT_DOWNUP (16*3*250)//units of 4us; how long after a crouch to upward input should it begin a jump?
 #define JUMP_TIME (16*2*250)//units of 4us; after a recent crouch to upward input, always hold full up for 2 frames
@@ -31,6 +33,8 @@
 #define TIMELIMIT_HALFFRAME 2083//(8.33...*250)//units of 4us; 1/2 frame
 #define TIMELIMIT_DEBOUNCE (6*250)//units of 4us; 6ms;
 #define TIMELIMIT_SIMUL (2*250)//units of 4us; 3ms: if the latest inputs are less than 2 ms apart then don't nerf cardiag
+
+#define TIMELIMIT_TAPSHUTOFF 16000//4 frames for tap jump shutoff
 
 //not used #define TIMELIMIT_DASH 60000//(16*15*250)//units of 4us; last dash time prior to a pivot input; 15 frames
 
@@ -46,6 +50,7 @@
 #define TIMELIMIT_PIVOTTILT 32000//(16*8*250)//units of 4us; 8 frames
 
 enum pivotdir{P_None, P_Leftright, P_Rightleft};
+enum travelType{T_Lin, T_Quad, T_Cubic, T_Quart, T_Delay};
 
 #define ZONE_DIR 0b0000'1111
 #define ZONE_U   0b0000'0001
@@ -113,17 +118,22 @@ uint8_t isEasy(const uint8_t x, const uint8_t y) {
     }
 }
 
-uint8_t getRandom() {
-    static uint8_t random = 0;
-    random = (random+7) % 16;
-    return random;
+uint8_t getRandom(uint16_t currentTime) {
+    // Use the time of the first directional input to initialize the LCG
+    static uint16_t random = currentTime;
+    // Constant from https://arxiv.org/pdf/2001.05304.pdf
+    random = 0xD9F5 * random + 1;
+    // XOR all nibbles together, necessary to minimize patterns with a power of 2 LCG
+    uint8_t xor1 = random ^ (random >> 8);
+    uint8_t xor2 = xor1   ^ (xor1   >> 4);
+    return xor2 % 16;
 }
 // 1 2 1 //4
 // 2 4 2 //8
 // 1 2 1 //4
 // totals up to 16
-void randomizeCoord(uint8_t &x, uint8_t &y) {
-    const uint8_t random = getRandom();
+void randomizeCoord(uint8_t &x, uint8_t &y, uint16_t currentTime) {
+    const uint8_t random = getRandom(currentTime);
     const uint8_t left = ((random ^ 0b0) & 0b11) == 0;
     //middle is when random & 0b01 or 0b10
     const uint8_t right = ((random ^ 0b11) & 0b11) == 0;
@@ -154,6 +164,11 @@ uint8_t lookback(const uint8_t currentIndex,
 //thresholds are dash for cardinals, and deadzone for diagonals
 uint8_t sdiZone(const uint8_t x, const uint8_t y) {
     uint8_t result = 0b0000'0000;
+    const uint8_t xnorm = (x > ANALOG_STICK_NEUTRAL ? (x-ANALOG_STICK_NEUTRAL) : (ANALOG_STICK_NEUTRAL-x));
+    const uint8_t ynorm = (y > ANALOG_STICK_NEUTRAL ? (y-ANALOG_STICK_NEUTRAL) : (ANALOG_STICK_NEUTRAL-y));
+    const uint16_t xsquared = xnorm*xnorm;
+    const uint16_t ysquared = ynorm*ynorm;
+    const uint16_t radSquared = xsquared+ysquared;
     if(x >= ANALOG_DEAD_MIN && x <= ANALOG_DEAD_MAX) {
         if(y < ANALOG_SDI_LEFT) {
             result = result | ZONE_D;
@@ -161,17 +176,17 @@ uint8_t sdiZone(const uint8_t x, const uint8_t y) {
             result = result | ZONE_U;
         }
     } else if(x < ANALOG_DEAD_MIN) {
-        if(y < ANALOG_DEAD_MIN) {
+        if(y < ANALOG_DEAD_MIN && radSquared >= MELEE_SDI_RAD) {
             result = result | ZONE_D | ZONE_L;
-        } else if(y > ANALOG_DEAD_MAX) {
+        } else if(y > ANALOG_DEAD_MAX && radSquared >= MELEE_SDI_RAD) {
             result = result | ZONE_U | ZONE_L;
         } else if(x <= ANALOG_SDI_LEFT) {
             result = result | ZONE_L;
         }
     } else /*if(x > ANALOG_DEAD_MAX)*/ {
-        if(y < ANALOG_DEAD_MIN) {
+        if(y < ANALOG_DEAD_MIN && radSquared >= MELEE_SDI_RAD) {
             result = result | ZONE_D | ZONE_R;
-        } else if(y > ANALOG_DEAD_MAX) {
+        } else if(y > ANALOG_DEAD_MAX && radSquared >= MELEE_SDI_RAD) {
             result = result | ZONE_U | ZONE_R;
         } else if(x >= ANALOG_SDI_RIGHT) {
             result = result | ZONE_R;
@@ -191,6 +206,14 @@ uint8_t pivotZone(const uint8_t x) {
         result = result | ZONE_L;
     } else if(x >= ANALOG_DASH_RIGHT) {
         result = result | ZONE_R;
+    }
+    return result;
+}
+
+uint8_t uptiltShutoffZone(const uint8_t y) {
+    uint8_t result = 0b0000'0000;
+    if(y > ANALOG_DEAD_MAX && y < ANALOG_TAPJUMP) {
+        result = result | ZONE_U;
     }
     return result;
 }
@@ -235,7 +258,7 @@ uint8_t isTapSDI(const sdizonestate zoneHistory[HISTORYLEN],
         //const uint16_t timeDiff2 = (timeList[0] - timeList[1])*sampleSpacing;//rising to falling, or falling to rising
         //We want to nerf it if there is more than one press every 6 frames, but not if the previous press or release duration is less than 1 frame
         if(!staleList[3] && (timeDiff0 < TIMELIMIT_TAP_PLUS && timeDiff1 < TIMELIMIT_TAP && timeDiff0 > TIMELIMIT_DEBOUNCE)) {
-            if((zoneList[0] == 0) || (zoneList[1] == 0)) {//if one of the pairs of zones is zero, it's tapping a cardinal
+            if((zoneList[0] == 0) || (zoneList[1] == 0)) {//if one of the pairs of zones is zero, it's tapping a cardinal (or tapping a diagonal modifier)
                 output = output | BITS_SDI_TAP_CARD;
             } else if(popCur+popOne == 3) { //one is cardinal and the other is diagonal
                 output = output | BITS_SDI_TAP_DIAG;
@@ -334,6 +357,23 @@ uint8_t isTapSDI(const sdizonestate zoneHistory[HISTORYLEN],
     return output;
 }
 
+/*
+Fixed88 quadraticEasing(Fixed88 i){
+    Fixed88 x2 = fixedMul(i,i);
+    return x2;
+}
+Fixed88 cubicEasing(Fixed88 i){
+    Fixed88 x2 = fixedMul(i,i);
+    Fixed88 x3 = fixedMul(x2,i);
+    return x3;
+}
+Fixed88 quarticEasing(Fixed88 i){
+    Fixed88 x2 = fixedMul(i,i);
+    Fixed88 x4 = fixedMul(x2,x2);
+    return x4;
+}
+*/
+
 void travelTimeCalc(const uint16_t samplesElapsed,
                     const uint16_t sampleSpacing,//units of 4us
                     const uint8_t msTravel,
@@ -343,23 +383,25 @@ void travelTimeCalc(const uint16_t samplesElapsed,
                     const uint8_t startY,
                     const uint8_t destX,
                     const uint8_t destY,
-                    const bool delay,
-                    bool &oldChange,//apply tt if false; if the time gets too long, set it to true
+                    const travelType type,
+                    bool &oldChange,//if the time gets too long, set it to true
+                    bool &doneTraveling,//apply tt if false; when travel time is done, set it to true
                     uint8_t &outX,
                     uint8_t &outY) {
     //check for old data; this prevents overflow from causing issues
     if(samplesElapsed > 5*16*2) {//5 frames * 16 ms * max 2 samples per frame
         oldChange = true;
+        doneTraveling = true;
     }
     const uint16_t timeElapsed = samplesElapsed*sampleSpacing;//units of 4 us
-    if(!delay) {
+    if(type == T_Lin) {
         const uint16_t travelTimeElapsed = timeElapsed/msTravel;//250 times the fraction of the travel time elapsed
 
         //For the following 256s, they used to be 250, but AVR had division issues
-            // and would only be able to reach a value of 6 when returning to neutral,
-            // from the right only.
-            //Switching to 256 fixed it somehow, at the expense of 2.4% greater travel time.
-            const uint16_t cappedTT = min(256, travelTimeElapsed);
+        // and would only be able to reach a value of 6 when returning to neutral,
+        // from the right only.
+        //Switching to 256 fixed it somehow, at the expense of 2.4% greater travel time.
+        const uint16_t cappedTT = min(256, travelTimeElapsed);
 
         const int16_t dX = ((destX-startX)*cappedTT)/256;
         const int16_t dY = ((destY-startY)*cappedTT)/256;
@@ -369,17 +411,47 @@ void travelTimeCalc(const uint16_t samplesElapsed,
 
         outX = (uint8_t) newX;
         outY = (uint8_t) newY;
-    } else {
+    } else if (type == T_Delay) {
         if(timeElapsed <= msTravel*250) {
             outX = startX;
             outY = startY;
         } else {
             outX = destX;
             outY = destY;
+            doneTraveling = true;
         }
+//    } else{
+//        uint16_t usTravel4 = msTravel*250;//units of 4 us
+//        const uint16_t clampedElapsed = min(usTravel4, timeElapsed);
+//        if(clampedElapsed == usTravel4) {
+//            doneTraveling = true;
+//        }
+//        const Fixed88 timeElapsedPercent = fastDiv(intToFixed(int8_t(timeElapsed>>6)), intToFixed(int8_t(usTravel4>>6)));
+//
+//        Fixed88 interpolatedTime = max(min(timeElapsedPercent, intToFixed(int8_t(1))), intToFixed(int8_t(0)));
+//
+//        /*if(type == T_Quad) {
+//         * */
+//            interpolatedTime = quadraticEasing(interpolatedTime);
+//            /*
+//        } else if(type == T_Cubic) {
+//            interpolatedTime = cubicEasing(interpolatedTime);
+//        } else {//if(type == T_Quart)
+//            interpolatedTime = quarticEasing(interpolatedTime);
+//        }
+//        */
+//        const Fixed88 x0 = intToFixed(int8_t(startX- 128)) >> 1;
+//        const Fixed88 x1 = intToFixed(int8_t(destX - 128)) >> 1;
+//        const Fixed88 y0 = intToFixed(int8_t(startY- 128)) >> 1;
+//        const Fixed88 y1 = intToFixed(int8_t(destY - 128)) >> 1;
+//        const Fixed88 fixedX = lerp(x0, x1, interpolatedTime) << 1;
+//        const Fixed88 fixedY = lerp(y0, y1, interpolatedTime) << 1;
+//
+//        outX = uint8_t(fixedToInt(fixedX) + 128);
+//        outY = uint8_t(fixedToInt(fixedY) + 128);
     }
 
-    if(oldChange || msTravel == 0) {
+    if(oldChange || doneTraveling || msTravel == 0) {
         outX = destX;
         outY = destY;
     }
@@ -408,6 +480,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
     //    Increase travel time on cardinal and lock out later diagonals.
 
     static bool oldA = true;
+    static bool doneTraveling = true;
 
     static uint16_t currentTime = 0;
     currentTime++;
@@ -415,6 +488,8 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
     static shortstate aHistory[HISTORYLEN];
     static sdizonestate sdiZoneHist[HISTORYLEN];
     static pivotzonestate pivotZoneHist[HISTORYLEN];
+
+    static InputState prevInputs;
 
     static bool initialized = false;
     if(!initialized) {
@@ -434,10 +509,186 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
             pivotZoneHist[i].zone = 0;
             pivotZoneHist[i].stale = true;
         }
+        //track the inputs that can cause changes to coordinates
+        prevInputs.left = inputs.left;
+        prevInputs.right = inputs.right;
+        prevInputs.down = inputs.down;
+        prevInputs.up = inputs.up;
+        prevInputs.c_left = inputs.c_left;
+        prevInputs.c_right = inputs.c_right;
+        prevInputs.c_down = inputs.c_down;
+        prevInputs.c_up = inputs.c_up;
+        prevInputs.b = inputs.b;
+        prevInputs.l = inputs.l;//we don't care about recording these
+        prevInputs.r = inputs.r;
+        prevInputs.lightshield = inputs.lightshield;
+        prevInputs.midshield = inputs.midshield;
+        prevInputs.mod_x = inputs.mod_x;
+        prevInputs.mod_y = inputs.mod_y;
+
         initialized = true;
     }
     static uint8_t currentIndexA = 0;
     static uint8_t currentIndexSDI = 0;
+
+    static travelType delayType = T_Lin;
+
+    //calculate whether to do a airdodge travel adjustment or not
+    //we want to continue the previous travel time, but if it's an airdodge with a prohibited angle destination, we overwrite the angle.
+    //this way the travel itself never skips straight to the destination.
+
+    //if L or R has been pressed
+    // if the coordinates changed
+    //  if they need to be nerfed
+    //   nerf them
+    //  else
+    //   if L or R caused the coordinate change
+    //    set the travel time destination to the new coordinate
+    // if the coordinates are in a nerf region (but haven't been corrected yet)
+    //  nerf them
+    //if L or R has just been released
+    // if it was nerfing them, un-nerf them
+    bool wavedashSkip = false;
+    static bool wavedashWasNerfed = false;
+    if(inputs.l || inputs.r) {
+        //check angles to see if it's in a shallow wavedash region
+        //the trigger was the only input that changed, potentially causing a retargeting without restarting the travel time
+        const uint8_t xIn = rawOutputIn.leftStickX;
+        const uint8_t yIn = rawOutputIn.leftStickY;
+        uint8_t x_end = xIn;
+        uint8_t y_end = yIn;
+
+        //calculate magnitudes
+        const uint16_t xInMag = xIn > ANALOG_STICK_NEUTRAL ? xIn - ANALOG_STICK_NEUTRAL : ANALOG_STICK_NEUTRAL - xIn;
+        const uint16_t yInMag = yIn > ANALOG_STICK_NEUTRAL ? yIn - ANALOG_STICK_NEUTRAL : ANALOG_STICK_NEUTRAL - yIn;
+
+        //calculate radius (squared)
+        const uint16_t xsquared = xInMag*xInMag;
+        const uint16_t ysquared = yInMag*yInMag;
+        const uint16_t radSquared = xsquared+ysquared;
+
+        //if the coordinates changed
+        if(aHistory[currentIndexA].x != rawOutputIn.leftStickX || aHistory[currentIndexA].y != rawOutputIn.leftStickY) {
+            //if the angle moved, check whether the currently requested angle is too shallow
+            //if so, nerf it, regardless of whether it was nerfed before.
+            if(((yInMag * 157 < xInMag * 80) || (xInMag * 157 < yInMag * 80)) && xInMag && yInMag) { //157 and 80 are the closest ratio to 27 degrees (27.0013)
+                //the closest coordinate inside the melee unit circle to 27 degrees is 51 and 26 (27.0127)
+                const uint8_t longCoord  = radSquared > 5625 ? 70 : 51;
+                const uint8_t shortCoord = radSquared > 5625 ? 36 : 26;
+                const uint8_t xWavedash = xInMag > yInMag ? longCoord : shortCoord;
+                const uint8_t yWavedash = yInMag > xInMag ? longCoord : shortCoord;
+                //overwrite with a nerfed angle
+                if(xIn < ANALOG_STICK_NEUTRAL) {
+                    x_end = ANALOG_STICK_NEUTRAL - xWavedash;
+                } else {
+                    x_end = ANALOG_STICK_NEUTRAL + xWavedash;
+                }
+                if(yIn < ANALOG_STICK_NEUTRAL) {
+                    y_end = ANALOG_STICK_NEUTRAL - yWavedash;
+                } else {
+                    y_end = ANALOG_STICK_NEUTRAL + yWavedash;
+                }
+                //fuzz it
+                randomizeCoord(x_end, y_end, currentTime);
+                //write it back
+                aHistory[currentIndexA].x_end = x_end;
+                aHistory[currentIndexA].y_end = y_end;
+                //also record the new requested coordinates
+                aHistory[currentIndexA].x = rawOutputIn.leftStickX;
+                aHistory[currentIndexA].y = rawOutputIn.leftStickY;
+                //mark as having been nerfed so we can undo it later
+                wavedashWasNerfed = true;
+            } else {
+                wavedashWasNerfed = false;
+                //only skip inputs if the L or R press caused the change in coordinates
+                if(!(prevInputs.l || prevInputs.r)) {
+                    //check if the L/R press coincides with a change in coordinate, indicating L/R NDM
+                    if(
+                        prevInputs.left == inputs.left &&
+                        prevInputs.right == inputs.right &&
+                        prevInputs.down == inputs.down &&
+                        prevInputs.up == inputs.up &&
+                        prevInputs.c_left == inputs.c_left &&
+                        prevInputs.c_right == inputs.c_right &&
+                        prevInputs.c_down == inputs.c_down &&
+                        prevInputs.c_up == inputs.c_up &&
+                        prevInputs.b == inputs.b &&
+                        prevInputs.lightshield == inputs.lightshield &&
+                        prevInputs.midshield == inputs.midshield &&
+                        prevInputs.mod_x == inputs.mod_x &&
+                        prevInputs.mod_y == inputs.mod_y
+                    ) {
+                        //then we need to skip to the new coordinate
+                        //fuzz it
+                        randomizeCoord(x_end, y_end, currentTime);
+                        //write it back
+                        aHistory[currentIndexA].x_end = x_end;
+                        aHistory[currentIndexA].y_end = y_end;
+                        //also record the new requested coordinates
+                        aHistory[currentIndexA].x = rawOutputIn.leftStickX;
+                        aHistory[currentIndexA].y = rawOutputIn.leftStickY;
+                        //mark this change as having been skipped so we don't restart travel time later
+                        wavedashSkip = true;
+                    }
+                }
+            }
+        }
+        //even if pressing L or R didn't move the coordinate, but it is now illegal
+        //nerf it
+        if(((yInMag * 157 < xInMag * 80) || (xInMag * 157 < yInMag * 80)) && xInMag && yInMag && !wavedashWasNerfed) { //157 and 80 are the closest ratio to 27 degrees (27.0013)
+            //the closest coordinate inside the melee unit circle to 27 degrees is 51 and 26 (27.0127)
+            const uint8_t xWavedash = xInMag > yInMag ? 51 : 26;
+            const uint8_t yWavedash = yInMag > xInMag ? 51 : 26;
+            //overwrite with a nerfed angle
+            if(xIn < ANALOG_STICK_NEUTRAL) {
+                x_end = ANALOG_STICK_NEUTRAL - xWavedash;
+            } else {
+                x_end = ANALOG_STICK_NEUTRAL + xWavedash;
+            }
+            if(yIn < ANALOG_STICK_NEUTRAL) {
+                y_end = ANALOG_STICK_NEUTRAL - yWavedash;
+            } else {
+                y_end = ANALOG_STICK_NEUTRAL + yWavedash;
+            }
+            //fuzz it
+            randomizeCoord(x_end, y_end, currentTime);
+            //write it back
+            aHistory[currentIndexA].x_end = x_end;
+            aHistory[currentIndexA].y_end = y_end;
+            //mark as having been nerfed so we can undo it later
+            wavedashWasNerfed = true;
+        }
+    } else if(!(inputs.l || inputs.r) && (prevInputs.l || prevInputs.r)) {
+        //if nerfed, then de-nerf once L and R are no longer pressed
+        if(wavedashWasNerfed) {
+            const uint8_t xIn = rawOutputIn.leftStickX;
+            const uint8_t yIn = rawOutputIn.leftStickY;
+            uint8_t x_end = xIn;
+            uint8_t y_end = yIn;
+            //fuzz it again
+            randomizeCoord(x_end, y_end, currentTime);
+            //write it back
+            aHistory[currentIndexA].x_end = x_end;
+            aHistory[currentIndexA].y_end = y_end;
+            wavedashWasNerfed = false;
+        }
+    }
+    //record previous inputs
+    prevInputs.left = inputs.left;
+    prevInputs.right = inputs.right;
+    prevInputs.down = inputs.down;
+    prevInputs.up = inputs.up;
+    prevInputs.c_left = inputs.c_left;
+    prevInputs.c_right = inputs.c_right;
+    prevInputs.c_down = inputs.c_down;
+    prevInputs.c_up = inputs.c_up;
+    prevInputs.b = inputs.b;
+    prevInputs.l = inputs.l;
+    prevInputs.r = inputs.r;
+    prevInputs.lightshield = inputs.lightshield;
+    prevInputs.midshield = inputs.midshield;
+    prevInputs.mod_x = inputs.mod_x;
+    prevInputs.mod_y = inputs.mod_y;
 
     //calculate travel from the previous step
     uint8_t prelimAX;
@@ -453,21 +704,11 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
                    aHistory[currentIndexA].y_start,
                    aHistory[currentIndexA].x_end,
                    aHistory[currentIndexA].y_end,
-                   /*useDelay*/false,
+                   delayType,
                    oldA,
+                   doneTraveling,
                    prelimAX,
                    prelimAY);
-
-    //If we're doing a diagonal airdodge, make travel time instant to prevent inconsistent wavedash angles
-    //this only fully works for neutral socd right now
-    //this is a catchall to force the latest output
-    //however, we do want to make it be overridden by the sdi nerfs so this happens first
-    /*
-    if((inputs.left != inputs.right) && (inputs.down != inputs.up) && inputs.down && (inputs.r || inputs.l)) {
-        prelimAX = rawOutputIn.leftStickX;
-        prelimAY = rawOutputIn.leftStickY;
-    }
-    */
 
     //detect an input that gives >50% pivot probability given travel time
     //if we are in a new pivot zone, record the new zone
@@ -522,6 +763,15 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
         direction = P_None;
     }
 
+    //tap jump shutoff
+    static uint8_t uptiltSamples = 0;
+    if(prelimAY > ANALOG_DEAD_MAX) {
+        uptiltSamples = min(uptiltSamples+1,254);
+    } else {
+        uptiltSamples = 0;
+    }
+    const uint16_t timeSinceNotUptilt = uptiltSamples*sampleSpacing;
+
     //actually apply the nerfs
     //debug c-stick output
     /*
@@ -533,53 +783,40 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
     bool pivotTilt = false;
     bool upTilt = false;
     if(direction != P_None && prelimAY < ANALOG_DEAD_MIN) {
-        //prelimAY = 0;
         pivotTilt = true;
     }
     //if it's a uptilt coordinate...
     if(direction != P_None && prelimAY > ANALOG_DEAD_MAX) {
-        //prelimAY = 255;
         pivotTilt = true;
         upTilt = true;
     }
-    /*actually, pivot ftilt doesn't need nerfing
-    //if it's a ftilt coordinate, make X dash/smash
-    //we need to use raw input in instead of prelim because that gets caught by travel time for a moment
-    if(direction == P_Leftright && rawOutputIn.leftStickX < ANALOG_DEAD_MIN) {
-        //prelimAX = 0;
-        pivotTilt = true;
-    }
-    if(direction == P_Rightleft && rawOutputIn.leftStickX > ANALOG_DEAD_MAX) {
-        //prelimAX = 255;
-        pivotTilt = true;
-    }
-    */
-
-    //If there's a pivot tilt, preserve the angle as best as possible but maximize the radius
-    int16_t xCoord = max(-127, min(127, prelimAX - ANALOG_STICK_NEUTRAL));//-127 to 127
-    int16_t yCoord = max(-127, min(127, prelimAY - ANALOG_STICK_NEUTRAL));//-127 to 127
-
-    uint16_t maxCoord = max(abs(xCoord), abs(yCoord));
-    bool maxedOut = false;
-    uint8_t stretchMult = 2;
-    for(int i = 2; i < 12; i++) {//23*11/2 is over 127
-        uint16_t tempMax = (maxCoord*i) >> 1;
-        if(tempMax > 127 && !maxedOut) {
-            maxedOut = true;
-            stretchMult = i-1;
-        }
-    }
     if(pivotTilt) {
-        int16_t tempX = (xCoord*stretchMult) >> 1;
-        int16_t tempY = (yCoord*stretchMult) >> 1;
-        if(!upTilt) {//preserve angles for downward ones only
-            prelimAX = ANALOG_STICK_NEUTRAL + tempX;
-            prelimAY = ANALOG_STICK_NEUTRAL + tempY;
-        } else {//prevent pivot up-angled ftilt
-            prelimAY = 255;
+        //If there's a pivot tilt, preserve the angle as best as possible but maximize the radius
+        int8_t xCoord = prelimAX - ANALOG_STICK_NEUTRAL;
+        int8_t yCoord = prelimAY - ANALOG_STICK_NEUTRAL;
+        uint8_t xCoordAbs = abs(xCoord);
+        uint8_t yCoordAbs = abs(yCoord);
+
+        if(upTilt && xCoordAbs > yCoordAbs) {
+            //Force all upward angles to a minimum of 45deg to prevent pivot uftilt and ensure tap jump
+            prelimAX = ANALOG_STICK_NEUTRAL + (xCoord >= 0 ? 127 : -127);
+            prelimAY = ANALOG_STICK_NEUTRAL + 127;
+        } else {
+            //Scale magnitude as close as we can get to 127 in increments of 0.5
+            //Quick way to ensure we get above 80 magnitude with minimal rounding errors
+            uint8_t stretchMult = (uint8_t)(127 * 2) / max(xCoordAbs, yCoordAbs);
+            prelimAX = ANALOG_STICK_NEUTRAL + xCoord * stretchMult / 2;
+            prelimAY = ANALOG_STICK_NEUTRAL + yCoord * stretchMult / 2;
+        }
+        if(upTilt && timeSinceNotUptilt > TIMELIMIT_TAPSHUTOFF) {
+            if(direction == P_Leftright) {
+                prelimAX = ANALOG_STICK_NEUTRAL - 30;
+            } else if(direction == P_Rightleft) {
+                prelimAX = ANALOG_STICK_NEUTRAL + 30;
+            }
+            prelimAY = ANALOG_STICK_NEUTRAL +30;
         }
     }
-
 
     //if it's a crouch to upward coordinate too quickly, make Y jump even if a tilt was desired
     static uint16_t timeSinceCrouch = 100;//must be < 65535 when multiplied by 500, the longest possible sampleSpacing, but bigger than the (timelimit/250)
@@ -601,13 +838,14 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
 
     if(timeSinceJump*sampleSpacing < JUMP_TIME && downUpJumping) {
         prelimAY = 255;
+        timeSinceCrouch = 100;//prevent an extra duration jump if the jump ends before the lockout window
     } else {
         downUpJumping = false;
     }
 
     //if it's wank sdi (TODO) or diagonal tap SDI, lock out the cross axis
     const uint8_t sdi = isTapSDI(sdiZoneHist, currentIndexSDI, currentTime, sampleSpacing);
-    static bool wankNerf = false;
+    static bool sdiIsNerfed = false;
     if(sdi & (BITS_SDI_TAP_DIAG | BITS_SDI_TAP_CRDG | BITS_SDI_WANK)){
         if(sdi & (ZONE_L | ZONE_R)) {
             //lock the cross axis
@@ -619,7 +857,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
             //prelimAX = aHistory[currentIndexA].x_start;
             //make sure that future cardinal travel time begins where it was before
             //aHistory[currentIndexA].x_end = prelimAX;
-            wankNerf = true;
+            sdiIsNerfed = true;
         } else if(sdi & (ZONE_U | ZONE_D)) {
             //lock the cross axis
             prelimAX = ANALOG_STICK_NEUTRAL;
@@ -630,7 +868,7 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
             //prelimAY = aHistory[currentIndexA].y_start;
             //make sure that future cardinal travel time begins where it was before
             //aHistory[currentIndexA].y_end = prelimAY;
-            wankNerf = true;
+            sdiIsNerfed = true;
         }//one or the other should occur
         //debug to see if SDI was detected
         /*
@@ -640,12 +878,15 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
         if(sdi & BITS_SDI_TAP_CRDG) {
             prelimCY = 200;
         }
+        if(sdi & BITS_SDI_WANK) {
+            prelimCX = 10;
+        }
         */
-    } else if(wankNerf) {
+    } else if(sdiIsNerfed) {
         aHistory[currentIndexA].x_end = aHistory[currentIndexA].x;
         aHistory[currentIndexA].y_end = aHistory[currentIndexA].y;
         if(prelimAX == ANALOG_STICK_NEUTRAL && prelimAY == ANALOG_STICK_NEUTRAL) {
-            wankNerf = false;
+            sdiIsNerfed = false;
         }
     }
 
@@ -667,60 +908,70 @@ void limitOutputs(const uint16_t sampleSpacing,//in units of 4us
 
     //if we have a new coordinate, record the new info, the travel time'd locked out stick coordinate, and set travel time
     if(aHistory[currentIndexA].x != rawOutputIn.leftStickX || aHistory[currentIndexA].y != rawOutputIn.leftStickY) {
-        oldA = false;
-        currentIndexA = (currentIndexA + 1) % HISTORYLEN;
+        //don't update things if this is a wavedash in a banned region
+        if(!wavedashSkip) {
+            oldA = false;
+            doneTraveling = false;
+            const uint8_t oldIndexA = currentIndexA;
+            currentIndexA = (currentIndexA + 1) % HISTORYLEN;
 
-        const uint8_t xIn = rawOutputIn.leftStickX;
-        const uint8_t yIn = rawOutputIn.leftStickY;
-        uint8_t xInRand = xIn;
-        uint8_t yInRand = yIn;
-        randomizeCoord(xInRand, yInRand);
+            const uint8_t xIn = rawOutputIn.leftStickX;
+            const uint8_t yIn = rawOutputIn.leftStickY;
 
-        aHistory[currentIndexA].timestamp = currentTime;
-        aHistory[currentIndexA].x = xIn;
-        aHistory[currentIndexA].y = yIn;
-        aHistory[currentIndexA].x_end = xInRand;
-        aHistory[currentIndexA].y_end = yInRand;
-        aHistory[currentIndexA].x_start = prelimAX;
-        aHistory[currentIndexA].y_start = prelimAY;
+            uint8_t xInRand = xIn;
+            uint8_t yInRand = yIn;
+            randomizeCoord(xInRand, yInRand, currentTime);
 
-        uint8_t prelimTT = TRAVELTIME_EASY1;
-        //if the destination is not an "easy" coordinate
-        const uint8_t easiness = isEasy(xIn, yIn);
-        if(easiness == 1) {
-            prelimTT = TRAVELTIME_EASY1;
-        } else if(easiness == 2) {
-            prelimTT = TRAVELTIME_EASY2;
-        } else if(easiness == 3) {
-            prelimTT = TRAVELTIME_EASY3;
-        } else {
-            prelimTT = TRAVELTIME_INTERNAL;
+            aHistory[currentIndexA].timestamp = currentTime;
+            aHistory[currentIndexA].x = xIn;
+            aHistory[currentIndexA].y = yIn;
+            aHistory[currentIndexA].x_end = xInRand;
+            aHistory[currentIndexA].y_end = yInRand;
+            aHistory[currentIndexA].x_start = prelimAX;
+            aHistory[currentIndexA].y_start = prelimAY;
+
+            uint8_t oldX = aHistory[oldIndexA].x;
+            uint8_t oldY = aHistory[oldIndexA].y;
+            if(prelimAX == oldX) {
+                if(xInRand > oldX) {
+                    aHistory[currentIndexA].x_start++;
+                }
+                if(xInRand < oldX) {
+                    aHistory[currentIndexA].x_start--;
+                }
+            }
+            if(prelimAY == oldY) {
+                if(yInRand > oldY) {
+                    aHistory[currentIndexA].y_start++;
+                }
+                if(yInRand < oldY) {
+                    aHistory[currentIndexA].y_start--;
+                }
+            }
+
+            uint8_t prelimTT = TRAVELTIME_EASY1;
+            //if the destination is not an "easy" coordinate
+            const uint8_t easiness = isEasy(xIn, yIn);
+            if(easiness == 1) {
+                prelimTT = TRAVELTIME_EASY1;
+                delayType = T_Lin;
+            } else if(easiness == 2) {
+                prelimTT = TRAVELTIME_EASY2;
+                delayType = T_Lin;
+            } else if(easiness == 3) {
+                prelimTT = TRAVELTIME_EASY3;
+                delayType = T_Lin;
+            } else {
+                prelimTT = TRAVELTIME_INTERNAL;
+                delayType = T_Lin;
+            }
+            //if cardinal tap SDI
+            if(sdi & BITS_SDI_TAP_CARD) {
+                prelimTT = max(prelimTT, TRAVELTIME_SLOW);
+                delayType = T_Lin;
+            }
+            aHistory[currentIndexA].tt = prelimTT;
         }
-        //if cardinal tap SDI
-        if(sdi & BITS_SDI_TAP_CARD) {
-            prelimTT = max(prelimTT, TRAVELTIME_SLOW);
-        }
-        /*
-        //if the destination is on the opposite side from the current prelim coord
-        if((xIn < ANALOG_STICK_NEUTRAL && ANALOG_STICK_NEUTRAL < prelimAX) ||
-           (yIn < ANALOG_STICK_NEUTRAL && ANALOG_STICK_NEUTRAL < prelimAY) ||
-           (xIn > ANALOG_STICK_NEUTRAL && ANALOG_STICK_NEUTRAL > prelimAX) ||
-           (yIn > ANALOG_STICK_NEUTRAL && ANALOG_STICK_NEUTRAL > prelimAY)) {
-            prelimTT = max(prelimTT, TRAVELTIME_CROSS);
-        }
-        */
-        //If we're doing a diagonal airdodge, make travel time instant to prevent inconsistent wavedash angles
-        //this only fully works for neutral socd right now
-        //it doesn't fully work either, so I'm going to put a catchall in the outer loop
-        /*
-        if((inputs.left != inputs.right) && (inputs.down != inputs.up) && inputs.down && (inputs.r || inputs.l)) {
-            prelimTT = 0;
-        }
-        */
-        aHistory[currentIndexA].tt = prelimTT;
-    } else {
-        //we want to always increment the rng one way or another...
-        getRandom();
     }
 
     //===============================applying the nerfed coords=================================//
